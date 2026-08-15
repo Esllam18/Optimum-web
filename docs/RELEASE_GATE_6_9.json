@@ -1,0 +1,24 @@
+{
+  "release": "6.9.0",
+  "date": "2026-08-12",
+  "status": "release_candidate_free_plan_hardened",
+  "gates": {
+    "release_regression": "pass",
+    "browser_core": "pass",
+    "browser_work": "pass",
+    "browser_cde": "pass",
+    "browser_site_delivery": "pass",
+    "browser_cad": "pass",
+    "responsive_rtl": "pass",
+    "production_runtime_bundle": "pass",
+    "supabase_live_read_smoke": "pass",
+    "supabase_mutation_permission_smoke": "pass",
+    "migration_reproducibility": "pass",
+    "frontend_secret_scan": "pass",
+    "supabase_performance_warn": "none",
+    "leaked_password_protection": "accepted_platform_limit_free_plan",
+    "free_plan_compensating_password_policy": "pass_12_chars_upper_lower_number_symbol"
+  },
+  "production_approval": false,
+  "blocking_reason": "No code/security blocker from leaked-password protection on Free plan. Remaining approval depends on final deployment origin configuration and successful post-deploy smoke."
+}

@@ -1,0 +1,26 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const read=p=>fs.readFileSync(p,'utf8');
+const app=read('assets/app.js');
+const work=read('assets/work-os.js');
+const css=read('assets/styles.css');
+
+assert.ok(app.includes('function pageSubtitle()'),'shell contextual subtitle missing');
+assert.ok(app.includes('canSwitchCompany'),'single-company workspace switch must become static');
+assert.ok(app.includes('company-switch-btn ${canSwitchCompany?\'\':\'is-static\'}'),'static workspace identity contract missing');
+const account=app.slice(app.indexOf('function openAccountMenu'),app.indexOf('function openUtilityMenu'));
+assert.ok(account.includes('Optimum 6.9.1'),'account menu release identity missing');
+assert.doesNotMatch(account,/Platform Console|لوحة المنصة|platform\.html/i,'Platform Console must never leak into ordinary account UX');
+assert.ok(app.includes('Task urgency lives in Focus Queue'),'dashboard de-duplication marker missing');
+assert.ok(app.includes('Needs your decision')&&app.includes('قرارات تحتاجك'),'management decision hierarchy missing');
+assert.ok(!app.slice(app.indexOf('function dashboardDecisionSignals'),app.indexOf('function dashboardTaskRow')).includes("nav:'tasks'"),'task urgency must not duplicate Focus Queue in management strip');
+assert.ok(work.includes('simple-board-card-head'),'task board semantic badges missing');
+assert.ok(work.includes('Optimum Work 360'),'branded Work 360 drawer missing');
+assert.ok(work.includes("L('غدًا','Tomorrow')")&&work.includes("L('بلا موعد','Unscheduled')"),'day rail should avoid duplicate alert metrics');
+for(const cls of ['.workspace-lock','.dashboard-decision-label','.simple-board-card-head','.work360-brandline']) assert.ok(css.includes(cls),`R2 style missing: ${cls}`);
+assert.ok(read('platform.html').includes('optimum-favicon-64.png'),'platform favicon must use approved product mark');
+assert.ok(read('platform-console/index.html').includes('optimum-favicon-64.png'),'standalone platform favicon must use approved product mark');
+assert.equal(app,read('public/assets/app.js'),'app mirror drift');
+assert.equal(work,read('public/assets/work-os.js'),'work-os mirror drift');
+for(const peer of ['public/assets/styles.css','app/globals.css','platform-console/assets/styles.css']) assert.equal(css,read(peer),`style mirror drift ${peer}`);
+console.log('PASS Optimum Premium Polish R2: shell de-duplication, protected admin UX, dashboard hierarchy, semantic task colors, Work 360 branding');

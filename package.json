@@ -1,0 +1,12 @@
+{
+  "name": "optimum-production",
+  "version": "6.9.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=20.9"
+  }
+}

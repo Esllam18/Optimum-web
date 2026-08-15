@@ -1,0 +1,21 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const read=p=>fs.readFileSync(p,'utf8');
+const app=read('assets/app.js');
+const css=read('assets/styles.css');
+
+assert.ok(app.includes('premium-page-header'),'global premium page identity missing');
+assert.ok(app.includes("productBrandMark('page-product-logo')"),'page headers must carry the Optimum mark');
+assert.ok(app.includes('premium-empty-state')&&app.includes("productBrandMark('empty-product-logo')"),'empty states must carry quiet product identity');
+assert.ok(app.includes('onboarding-product-brand'),'expired first-login state must retain product identity');
+assert.ok(app.includes('project-portfolio-pulse'),'project portfolio pulse missing');
+assert.ok(app.includes('project-status-${e(p.status'), 'semantic project status class missing');
+assert.ok(app.includes('cde-page-intro')&&app.includes('cde-onboarding'),'CDE premium hierarchy missing');
+assert.ok(app.includes('delivery-status-pulse'),'delivery lifecycle pulse missing');
+assert.ok(app.includes('settings-product-brand')&&app.includes('settings-workspace-brand'),'settings must separate product and workspace branding');
+const account=app.slice(app.indexOf('function openAccountMenu'),app.indexOf('function openUtilityMenu'));
+assert.doesNotMatch(account,/Platform Console|لوحة المنصة|platform\.html/i,'Platform Console must remain absent from ordinary account UX');
+for(const cls of ['.premium-page-header','.project-portfolio-pulse','.cde-onboarding','.delivery-status-pulse','.settings-product-brand']) assert.ok(css.includes(cls),`R3 style missing ${cls}`);
+assert.equal(app,read('public/assets/app.js'),'app mirror drift');
+for(const peer of ['public/assets/styles.css','app/globals.css','platform-console/assets/styles.css']) assert.equal(css,read(peer),`style mirror drift ${peer}`);
+console.log('PASS Optimum Premium Polish R3: global product identity, project/CDE/delivery/admin hierarchy, branded empty/error states');
