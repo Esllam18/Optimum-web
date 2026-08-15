@@ -1,0 +1,70 @@
+{
+  "assets/api.js": {
+    "bytes": 14306,
+    "sha256": "e3f7bffdd91dd2d7cfd91ad50cb3f2e545d3496b40bb4c569f9f03f1ca8668bd"
+  },
+  "assets/brand/optimum-apple-touch.png": {
+    "bytes": 17243,
+    "sha256": "ad2ac8a26bffe5f2f48b0578184b3a181dd8bb0cd04a461e30e095477a0fb11c"
+  },
+  "assets/brand/optimum-favicon-64.png": {
+    "bytes": 3877,
+    "sha256": "cc190ba9755389a2c43b6104ed06a11324cdf159f1752b7b28b9f35ce38e5894"
+  },
+  "assets/brand/optimum-icon-192.png": {
+    "bytes": 18791,
+    "sha256": "c716cfb08053c931a54950707dff48a9632c10c6382a1cf5200d4aa12483ce38"
+  },
+  "assets/brand/optimum-icon-512.png": {
+    "bytes": 95657,
+    "sha256": "0b8bd181630396824ec3dc7e384299fa9353e8c98f876bd5d80078f724af26eb"
+  },
+  "assets/brand/optimum-lockup.png": {
+    "bytes": 205605,
+    "sha256": "c6608171fb00fbe826ae44994567303b12990356f007129c76ebe0122a522db5"
+  },
+  "assets/brand/optimum-mark.png": {
+    "bytes": 95657,
+    "sha256": "0b8bd181630396824ec3dc7e384299fa9353e8c98f876bd5d80078f724af26eb"
+  },
+  "assets/config.example.js": {
+    "bytes": 420,
+    "sha256": "7b36ad76b713a4bcfda20d884f48751d987d86842d5f8c1739873ce275ee5ac0"
+  },
+  "assets/config.js": {
+    "bytes": 428,
+    "sha256": "a1aacbbcaa9339bf39f8e363d0dac5c80bdacc45af4c3f8de8d8038710868ede"
+  },
+  "assets/icons.js": {
+    "bytes": 9676,
+    "sha256": "181f16c69f5a2b1231dbd3a6a6aa324ad56784fc84a95bd7823cbec657a34eb4"
+  },
+  "assets/platform.js": {
+    "bytes": 111361,
+    "sha256": "d1e420a51731166e479369de71d506d5cb7892534f2d867b2b0d8536cd896281"
+  },
+  "assets/styles.css": {
+    "bytes": 885516,
+    "sha256": "77c0a12259e5bb2d1dddc287f472b5385d7e38e338206d2642a138b1b1823780"
+  },
+  "favicon.svg": {
+    "bytes": 5300,
+    "sha256": "04e4a8337135320454fc6a8a096b25ac3a0aa6b81230c03f73dce39b40a4307d"
+  },
+  "index.html": {
+    "bytes": 1016,
+    "sha256": "d1619475bb9c5bdb19d6dc18e2f1559d4783324031248fd74ff1b3126da5008f"
+  },
+  "package.json": {
+    "bytes": 205,
+    "sha256": "e1788cb3080b1ac2bae0986fb77f382f622a06600411bfb68196389e2a25438b"
+  },
+  "release.json": {
+    "bytes": 104,
+    "sha256": "0b2c08077b4d4190c9c4a6b621986ed4c59ebc73c655dac02296fdfef49d7f67"
+  },
+  "server.mjs": {
+    "bytes": 5916,
+    "sha256": "c56595f34134a8e7ce91e377e303b564615a48a183e521110888622bc6f9f01f"
+  }
+}

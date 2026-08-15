@@ -13,7 +13,7 @@
     "test:session": "node tests/session-isolation-5.3.2.mjs",
     "test:audit": "node tests/system-contract-audit-5.3.2.mjs",
     "test:browser": "npm run test:browser:core && npm run test:browser:policy && npm run test:browser:work && npm run test:browser:excellence && npm run test:browser:pdc && npm run test:browser:site && npm run test:browser:global && npm run test:browser:dashboard",
-    "test:release": "npm test && npm run test:foundationv2 && npm run test:premium69 && npm run test:premiumf2 && npm run test:point3 && npm run test:point5 && npm run test:point6 && npm run test:point7 && npm run test:point8 && npm run test:point9 && npm run test:point10 && npm run test:point11 && npm run test:point910 && npm run test:premiumf3 && npm run test:premiumf4 && npm run test:premiumf5 && npm run test:premiumf6 && npm run test:premiumf7 && npm run test:premiumf8 && npm run test:premiumf9 && node tests/cde-production-hardening-6.9.mjs && node tests/cad-production-hardening-6.9.mjs && node tests/site-delivery-production-hardening-6.9.mjs && node tests/platform-console-production-hardening-6.9.mjs && node tests/production-readiness-final-6.9.mjs && node tests/free-plan-auth-baseline-6.9.mjs && npm run test:polishr4 && npm run test:polishr5 && npm run test:brand && npm run test:production-runtime",
+    "test:release": "npm test && npm run test:foundationv2 && npm run test:premium69 && npm run test:premiumf2 && npm run test:point3 && npm run test:point5 && npm run test:point6 && npm run test:point7 && npm run test:point8 && npm run test:point9 && npm run test:point10 && npm run test:point11 && npm run test:point910 && npm run test:premiumf3 && npm run test:premiumf4 && npm run test:premiumf5 && npm run test:premiumf6 && npm run test:premiumf7 && npm run test:premiumf8 && npm run test:premiumf9 && node tests/cde-production-hardening-6.9.mjs && node tests/cad-production-hardening-6.9.mjs && node tests/site-delivery-production-hardening-6.9.mjs && node tests/platform-console-production-hardening-6.9.mjs && node tests/production-readiness-final-6.9.mjs && node tests/free-plan-auth-baseline-6.9.mjs && npm run test:polishr4 && npm run test:polishr5 && npm run test:polishr6 && npm run test:brand && npm run test:production-runtime",
     "test:organization": "node tests/organization-control-center-5.4.mjs",
     "test:premium69": "node tests/premium-organization-access-6.9.1.mjs",
     "test:access": "node tests/organization-access-engine-5.5.mjs",
@@ -73,7 +73,8 @@
     "test:polishr2": "node tests/premium-polish-r2-6.9.1.mjs",
     "test:polishr3": "node tests/premium-polish-r3-6.9.1.mjs",
     "test:polishr4": "node tests/premium-polish-r4-6.9.1.mjs",
-    "test:polishr5": "node tests/premium-polish-r5-6.9.1.mjs"
+    "test:polishr5": "node tests/premium-polish-r5-6.9.1.mjs",
+    "test:polishr6": "node tests/premium-polish-r6-6.9.1.mjs"
   },
   "dependencies": {
     "next": "^16.3.0",

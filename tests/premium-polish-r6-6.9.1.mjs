@@ -1,0 +1,16 @@
+import fs from 'node:fs';
+const read=(p)=>fs.readFileSync(new URL(`../${p}`,import.meta.url),'utf8');
+const app=read('assets/app.js'),work=read('assets/work-os.js'),css=read('assets/styles.css');
+const assert=(v,m)=>{if(!v)throw new Error(m)};
+assert(app.includes("dashboard-attention-preview ${rows.length?'':'is-empty'}"),'compact attention marker missing');
+assert(app.includes('class="dashboard-greeting"'),'structured greeting missing');
+assert(app.includes('<bdi dir="auto">${e(name)}</bdi>'),'bidi name isolation missing');
+assert(work.includes("L('مركز التنفيذ','Execution center')"),'task hero still duplicates page title');
+assert(css.includes('repeat(auto-fit,minmax(250px,1fr))'),'adaptive decision grid missing');
+assert(css.includes('.dashboard-attention-preview.is-empty .empty'),'compact attention CSS missing');
+assert(css.includes('grid-template-columns:minmax(0,1fr) 270px!important'),'task rail density missing');
+assert(css.includes('Premium Polish R6: hierarchy + density + repetition pass'),'R6 marker missing');
+assert(app===read('public/assets/app.js'),'app mirror mismatch');
+assert(work===read('public/assets/work-os.js'),'work mirror mismatch');
+assert(css===read('public/assets/styles.css')&&css===read('app/globals.css')&&css===read('platform-console/assets/styles.css'),'css mirrors mismatch');
+console.log('PASS Optimum Premium Polish R6: hierarchy, density, repetition, bidi greeting, adaptive decisions and runtime mirrors');

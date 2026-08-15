@@ -5188,3 +5188,116 @@ html[data-theme="light"] .sidebar{
     transform:none!important;
   }
 }
+
+
+/* ========================================================================== */
+/* Optimum 6.9.1 — Premium Polish R6: hierarchy + density + repetition pass   */
+/* ========================================================================== */
+
+:root{--r6-panel-gap:10px}
+
+/* Dashboard: get to useful information faster. */
+.dashboard-cockpit.r5{gap:var(--r6-panel-gap)!important}
+.dashboard-premium-hero.r5{
+  min-height:104px!important;
+  padding:14px 18px!important;
+  border-radius:18px!important;
+  box-shadow:0 11px 32px color-mix(in srgb,var(--brand-primary) 6%,transparent)!important
+}
+.dashboard-premium-hero.r5 .dashboard-hero-brand{top:13px!important;inset-inline-end:15px!important}
+.dashboard-premium-hero.r5 .dashboard-intro-copy{padding-inline-end:128px!important}
+.dashboard-premium-hero.r5 .dashboard-intro-copy h2.dashboard-greeting{
+  display:flex;align-items:baseline;flex-wrap:wrap;gap:0 5px;
+  margin:2px 0 4px!important;
+  font-size:clamp(25px,2.15vw,32px)!important
+}
+.dashboard-greeting>span,.dashboard-greeting>bdi{unicode-bidi:isolate}
+.dashboard-greeting>bdi{font:inherit;color:inherit}
+.dashboard-greeting-sep{margin-inline-start:-3px}
+.dashboard-premium-hero.r5 .dashboard-intro-copy p{font-size:9.5px!important;line-height:1.45}
+.dashboard-context-chips{margin-top:6px!important}
+
+/* Adaptive executive brief: one signal fills the available surface. */
+.dashboard-decision-bar.r5{
+  grid-template-columns:minmax(170px,.62fr) repeat(auto-fit,minmax(250px,1fr))!important;
+  gap:7px!important;padding:6px!important
+}
+.dashboard-decision-bar.r5 .dashboard-decision-signal{min-height:54px!important}
+.dashboard-decision-bar.r5 .dashboard-decision-value{font-size:17px!important}
+
+/* Empty attention should be compact, not look like a primary module. */
+.dashboard-attention-preview.is-empty{padding-bottom:10px!important}
+.dashboard-attention-preview.is-empty .dashboard-side-head{margin-bottom:5px!important}
+.dashboard-attention-preview.is-empty .empty{
+  min-height:108px!important;padding:12px!important;border-radius:12px!important
+}
+.dashboard-attention-preview.is-empty .empty>div{
+  display:grid;
+  grid-template-columns:34px minmax(0,1fr);
+  grid-template-areas:"icon title" "icon copy";
+  align-items:center;column-gap:10px;max-width:none;width:100%;text-align:start
+}
+.dashboard-attention-preview.is-empty .empty-product-mark{display:none!important}
+.dashboard-attention-preview.is-empty .empty-icon{
+  grid-area:icon;width:34px!important;height:34px!important;margin:0!important;border-radius:10px!important
+}
+.dashboard-attention-preview.is-empty .empty h3{grid-area:title;margin:0!important;font-size:11px!important}
+.dashboard-attention-preview.is-empty .empty p{
+  grid-area:copy;margin:2px 0 0!important;max-width:none!important;font-size:8px!important;line-height:1.45!important
+}
+
+/* Focus rows: keep semantics but reduce visual drag. */
+.dashboard-focus-row.r5{min-height:58px!important}
+.dashboard-focus-main strong{font-size:10.5px!important}
+.dashboard-focus-main small{opacity:.78}
+.dashboard-focus-meta{gap:4px!important}
+
+/* Tasks: topbar owns "Tasks"; hero is the execution context. */
+.tasks-premium-head.r5{
+  min-height:86px!important;padding:12px 14px!important;border-radius:16px!important;
+  box-shadow:0 8px 24px color-mix(in srgb,var(--brand-primary) 4.5%,transparent)!important
+}
+.tasks-premium-head.r5 .tasks-premium-brand img{width:34px!important;height:34px!important}
+.tasks-premium-head.r5 h2{font-size:21px!important;letter-spacing:-.035em!important}
+.tasks-premium-head.r5 p{font-size:9px!important;line-height:1.45}
+.tasks-premium-head.r5 .tasks-premium-summary{gap:6px!important}
+.tasks-premium-head.r5 .tasks-premium-summary>span{
+  min-width:70px;padding:7px 10px!important;border-radius:10px!important
+}
+.tasks-premium-head.r5 .tasks-premium-summary>span b{font-size:16px!important}
+
+/* Composer: title is the primary interaction, detail controls are subordinate. */
+.simple-quick-add.r2{border-radius:15px!important;box-shadow:0 7px 20px rgba(0,0,0,.06)!important}
+.simple-composer-main{padding:9px 11px!important}
+.simple-composer-main .simple-quick-plus{width:32px!important;height:32px!important;border-radius:10px!important}
+.simple-composer-main>input{font-size:13px!important}
+.simple-composer-tools{padding:6px 11px!important}
+.simple-composer-tools>label,.simple-composer-more>summary{height:29px!important}
+
+/* Day rail supports the list instead of competing with it. */
+.simple-work-layout{grid-template-columns:minmax(0,1fr) 270px!important;gap:14px!important}
+.simple-day-card{padding:12px!important;border-radius:15px!important}
+.simple-day-metrics{margin:10px 0!important;gap:6px!important}
+.simple-day-metrics>div{padding:7px!important;border-radius:10px!important}
+.simple-day-metrics b{font-size:16px!important}
+
+html[data-theme="light"] .dashboard-decision-bar.r5,
+html[data-theme="light"] .tasks-premium-head.r5,
+html[data-theme="light"] .simple-quick-add.r2{
+  box-shadow:0 1px 2px rgba(15,23,42,.025),0 8px 22px rgba(15,23,42,.028)!important
+}
+
+@media(max-width:1080px){
+  .dashboard-decision-bar.r5{grid-template-columns:1fr!important}
+  .dashboard-decision-bar.r5 .dashboard-decision-label{grid-column:auto!important}
+  .simple-work-layout{grid-template-columns:minmax(0,1fr) 240px!important}
+}
+@media(max-width:900px){.simple-work-layout{grid-template-columns:1fr!important}}
+@media(max-width:680px){
+  .dashboard-premium-hero.r5{min-height:104px!important;padding:12px!important}
+  .dashboard-premium-hero.r5 .dashboard-intro-copy{padding-inline-end:0!important;padding-top:25px!important}
+  .dashboard-premium-hero.r5 .dashboard-intro-copy h2.dashboard-greeting{font-size:23px!important}
+  .dashboard-attention-preview.is-empty .empty{min-height:92px!important}
+  .tasks-premium-head.r5{padding:11px!important}
+  .tasks-premium-head.r5 h2{font-size:19px!important}
+}
