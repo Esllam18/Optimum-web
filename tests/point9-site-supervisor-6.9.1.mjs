@@ -77,7 +77,8 @@ for(const marker of [
 // Route library should be on demand and the explanatory header removed, not a second persistent strip.
 assert.ok(eng.includes('showRouteDock:false'),'Route dock must start hidden');
 assert.ok(eng.includes("if(eng.tool==='route')eng.showRouteDock=true"),'Route tool must reveal route dock');
-assert.ok(styles.includes('.cad-master-route-dock.cad-route-dock-r2>header,\n.cad-master-route-dock.cad-route-dock-r2>.engineering-quick-dock-head{display:none!important}'),'Route explanatory header must be hidden');
+const normalizedStyles=styles.split('\r\n').join('\n');
+assert.ok(normalizedStyles.includes('.cad-master-route-dock.cad-route-dock-r2>header,\n.cad-master-route-dock.cad-route-dock-r2>.engineering-quick-dock-head{display:none!important}'),'Route explanatory header must be hidden');
 
 // Operations R3 must use entity/module styling rather than a sparse technical timeline.
 assert.ok(ops.includes('class="ops-source-${nav}"'),'Operations source cards need module-aware styling');

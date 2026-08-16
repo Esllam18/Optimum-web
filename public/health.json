@@ -1,0 +1,7 @@
+{
+  "ok": true,
+  "service": "optimum",
+  "release": "6.9.0",
+  "baseline": "6.9.1-production-certification-r1",
+  "commit": null
+}

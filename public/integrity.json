@@ -12,8 +12,8 @@
     "sha256": "e3f7bffdd91dd2d7cfd91ad50cb3f2e545d3496b40bb4c569f9f03f1ca8668bd"
   },
   "assets/app.js": {
-    "bytes": 564029,
-    "sha256": "512456ddd57bec9f8d51698c345fd56a47de718c2796937f2c398993c2f074f7"
+    "bytes": 567656,
+    "sha256": "2856e73dc2f8b28af812d8ba29a9c860bbdc4ef57c35f1ddd7fc993e29d4a88e"
   },
   "assets/brand/optimum-apple-touch.png": {
     "bytes": 17243,
@@ -68,8 +68,8 @@
     "sha256": "4378dae69ce5b418f969223f709b410e585670435856b65ac696ed5d6ce181a7"
   },
   "assets/platform.js": {
-    "bytes": 110216,
-    "sha256": "b292ffeace921c9ee9bf2f17d82912cfa5c8306215f6631f455a2dea54291776"
+    "bytes": 111680,
+    "sha256": "86370cb69df95bca046c21904cbb850935484da2f4bafa9716902bc1d2b365b6"
   },
   "assets/project-control.js": {
     "bytes": 34930,
@@ -80,35 +80,27 @@
     "sha256": "d08412db639892150955b4a3e59863d56ecba44eac0228bb66893e68c1f19de7"
   },
   "assets/styles.css": {
-    "bytes": 855571,
-    "sha256": "1a6edab1393e8170da20b46673e48c9f3a5e6682cde7b47e1e32085a2abff6c7"
+    "bytes": 899896,
+    "sha256": "604cb71c273d728e7f8e76ca4760eaa02d44ca54676c974839f9adac22870cf2"
   },
   "assets/work-os.js": {
-    "bytes": 188781,
-    "sha256": "0a3a3d98dfcbb6d15cdb25d995bcf96426b069542aa6db2bb427e55c3ce1e026"
+    "bytes": 189302,
+    "sha256": "470e6c09d390b25d4566733de550edc4033ac0a68b5f14247b937a3357b9783d"
   },
   "favicon.svg": {
     "bytes": 5300,
     "sha256": "04e4a8337135320454fc6a8a096b25ac3a0aa6b81230c03f73dce39b40a4307d"
   },
+  "health.json": {
+    "bytes": 132,
+    "sha256": "fccd5072b7a3ab05c776b65fe88a7f2d3b16c8dcecde48c8ecb6db5a2a13b3c8"
+  },
   "index.html": {
     "bytes": 991,
     "sha256": "bdcca0335c47f68162d8d985332b8bf6f8f75821cd22c59a6084d2a9c5e0272f"
   },
-  "package.json": {
-    "bytes": 188,
-    "sha256": "6fdc57ea126faea75b2ce3365c566b73e302a045e86d848bd171282aaff0c2df"
-  },
   "platform.html": {
     "bytes": 801,
     "sha256": "d6d9648c223f5408ce01c6e611aed43b84cd256a8409f4696e68906d28388a31"
-  },
-  "release.json": {
-    "bytes": 104,
-    "sha256": "6c8ebaaf64c7b2a72c23d0cb5bdf73b6fed7c9fccd4ce77766e6964d0e8f6abf"
-  },
-  "server.mjs": {
-    "bytes": 5981,
-    "sha256": "c81b03211b49114a373cb2de65aba42689ea3f73cb2e31a149d0db43e9a47980"
   }
 }
