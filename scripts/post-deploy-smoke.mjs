@@ -4,17 +4,53 @@ import { createHash } from 'node:crypto';
 const clientUrl = (process.env.OPTIMUM_CLIENT_URL || process.argv[2] || '').replace(/\/$/,'');
 const platformUrl = (process.env.OPTIMUM_PLATFORM_URL || process.argv[3] || '').replace(/\/$/,'');
 const expectedCommit = (process.env.OPTIMUM_EXPECTED_COMMIT || process.argv[4] || '').trim();
+const bypassSecret = (
+  process.env.VERCEL_AUTOMATION_BYPASS_SECRET ||
+  process.env.OPTIMUM_VERCEL_BYPASS_SECRET ||
+  ''
+).trim();
 
 if (!clientUrl) {
   console.error('Usage: OPTIMUM_CLIENT_URL=https://app.example.com [OPTIMUM_PLATFORM_URL=https://platform.example.com] [OPTIMUM_EXPECTED_COMMIT=<sha>] node scripts/post-deploy-smoke.mjs');
   process.exit(2);
 }
 
+function requestHeaders(headers = {}) {
+  const merged = new Headers(headers);
+  if (bypassSecret) merged.set('x-vercel-protection-bypass', bypassSecret);
+  return merged;
+}
+
+function protectionRedirect(response) {
+  if (![301,302,303,307,308].includes(response.status)) return false;
+  const location = response.headers.get('location') || '';
+  return /vercel\.com|sso|login|auth/i.test(location);
+}
+
+function assertReachedDeployment(response, label) {
+  if (!protectionRedirect(response)) return;
+  if (!bypassSecret) {
+    throw new Error(
+      `${label}: Vercel Deployment Protection intercepted the request. ` +
+      'Set VERCEL_AUTOMATION_BYPASS_SECRET and retry; do not disable Preview protection.'
+    );
+  }
+  throw new Error(
+    `${label}: Vercel Deployment Protection still intercepted the request even though a bypass secret was supplied. ` +
+    'Verify the Protection Bypass for Automation secret belongs to this optimum-os project and has not been revoked.'
+  );
+}
+
 async function get(url, init={}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
   try {
-    return await fetch(url, { redirect:'manual', signal:controller.signal, ...init });
+    return await fetch(url, {
+      redirect:'manual',
+      signal:controller.signal,
+      ...init,
+      headers:requestHeaders(init.headers || {})
+    });
   } finally {
     clearTimeout(timer);
   }
@@ -42,6 +78,7 @@ function assertSecurityHeaders(res, label) {
 
 async function smokeHealth(base) {
   const health = await get(`${base}/health`);
+  assertReachedDeployment(health, 'health');
   assert.equal(health.status, 200, 'health must return 200');
   assert.match(health.headers.get('cache-control') || '', /no-store/, 'health must not be cached');
   const payload = await health.json();
@@ -59,12 +96,14 @@ async function smokeClient(base) {
   const healthPayload = await smokeHealth(base);
 
   const home = await get(`${base}/`);
+  assertReachedDeployment(home, 'client home');
   assert.equal(home.status, 200, 'client home must return 200');
   assertSecurityHeaders(home, 'client');
   assert.match(home.headers.get('cache-control') || '', /no-store/, 'client HTML must not be cached');
   assert.match(await home.text(), /<div id="app"/, 'client app mount missing');
 
   const integrityRes = await get(`${base}/integrity.json`);
+  assertReachedDeployment(integrityRes, 'integrity manifest');
   assert.equal(integrityRes.status, 200, 'integrity manifest must return 200');
   assert.match(integrityRes.headers.get('cache-control') || '', /no-store/, 'integrity manifest must not be cached');
   const integrity = await integrityRes.json();
@@ -73,6 +112,7 @@ async function smokeClient(base) {
   assert.ok(expectedApp?.sha256 && Number.isFinite(Number(expectedApp?.bytes)), 'integrity manifest missing assets/app.js');
 
   const asset = await get(`${base}/assets/app.js`);
+  assertReachedDeployment(asset, 'client asset');
   assert.equal(asset.status, 200, 'client asset must return 200');
   assert.match(asset.headers.get('cache-control') || '', /public/, 'client asset cache policy missing');
   const assetBody = Buffer.from(await asset.arrayBuffer());
@@ -84,6 +124,7 @@ async function smokeClient(base) {
   );
 
   const missing = await get(`${base}/assets/__optimum_missing__.js`);
+  assertReachedDeployment(missing, 'missing-asset probe');
   assert.equal(missing.status, 404, 'missing asset must return 404');
 
   return healthPayload;
@@ -91,6 +132,7 @@ async function smokeClient(base) {
 
 async function smokePlatform(base) {
   const platform = await get(base);
+  assertReachedDeployment(platform, 'platform shell');
   assert.equal(platform.status, 200, 'platform shell must return 200');
   assertSecurityHeaders(platform, 'platform');
   assert.match(platform.headers.get('cache-control') || '', /no-store/, 'platform HTML must not be cached');
@@ -107,5 +149,6 @@ console.log(JSON.stringify({
   commit: health.commit,
   client: clientUrl,
   platform: platformUrl || `${clientUrl}/platform`,
+  deploymentProtectionBypass: bypassSecret ? 'configured' : 'not-configured',
   integrity: 'verified'
 }, null, 2));

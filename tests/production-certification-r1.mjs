@@ -57,6 +57,9 @@ assert.match(postdeploy, /integrity\.json/, 'postdeploy must verify integrity ma
 assert.match(postdeploy, /createHash\('sha256'\)/, 'postdeploy must hash live app.js');
 assert.match(postdeploy, /\/health/, 'postdeploy must check health route');
 assert.match(postdeploy, /\/platform/, 'postdeploy must check integrated platform route');
+assert.match(postdeploy, /VERCEL_AUTOMATION_BYPASS_SECRET/, 'postdeploy must support Vercel protected Preview automation');
+assert.match(postdeploy, /x-vercel-protection-bypass/, 'postdeploy must send Vercel protection bypass header');
+assert.match(postdeploy, /assertReachedDeployment/, 'postdeploy must distinguish Deployment Protection redirects from app failures');
 assert.doesNotMatch(postdeploy, /work\/post-deploy-check/, 'legacy portable-server SPA deep-link assumption must be removed');
 
 assert.equal(pkg.version, '6.9.0', 'legacy package version contract must remain 6.9.0');
