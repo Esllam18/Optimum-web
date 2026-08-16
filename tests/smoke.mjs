@@ -59,7 +59,7 @@ assert.equal(cssCode, await read('public/assets/styles.css'));
 assert.equal(cssCode, await read('app/globals.css'));
 assert.match(appCode,/createEngineeringModule/);
 assert.match(appCode,/\['engineering','drafting'/);
-assert.match(appCode,/engineering:engineering\.page/);
+assert.match(appCode,/engineering:engineering(?:\?\.|\.)page/,'Engineering route must remain mapped whether eager or lazy');
 assert.match(appCode,/drawings\.view/);
 assert.match(appCode,/api\.js\?v=6\.9\.0/);
 assert.match(appCode,/engineering\.js\?v=6\.9\.0/);

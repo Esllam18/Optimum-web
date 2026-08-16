@@ -14,9 +14,9 @@ const platformStyles=fs.readFileSync('platform-console/assets/styles.css','utf8'
 const migration=fs.readFileSync('supabase/migrations/20260815114000_point8_operations_center.sql','utf8');
 
 for(const marker of [
-  "import { createOperationsCenter } from './operations-center.js?v=6.9.0'",
+  "operations:()=>import('./operations-center.js?v=6.9.0')",
   "dashboard:'company.view', operations:'company.view'",
-  "operationsCenter = createOperationsCenter",
+  "operationsCenter=mod.createOperationsCenter",
   "if(await operationsCenter?.handleAction(action,el))return",
   "if(await operationsCenter?.handleChange(ev))return",
   "operationsCenter?.reset()"
@@ -26,7 +26,8 @@ for(const marker of [
 // Core 9–10 consolidation: the Operations engine remains live but is embedded into the role-aware Home, not duplicated in navigation.
 assert.ok(app.includes('function dashboardHomeMode()'),'Role-aware Home must exist');
 assert.ok(app.includes('function dashboardChangeDigest()'),'Operations changes must be embedded in Home');
-assert.ok(app.includes("operationsCenter?.load();if(can('projects.view'))projectControl?.load()"),'Management Home must load canonical operations/control sources');
+assert.ok(app.includes("const jobs=[ensureOperationsCenter({load,force})]"),'Management Home must activate canonical Operations on demand');
+assert.ok(app.includes("jobs.push(ensureProjectControl({load,force}))"),'Management Home must activate Project Control on demand when permitted');
 assert.ok(!app.includes("['operations','activity',()=>L('مركز التشغيل','Operations Center')]"),'Operations Center must not remain a standalone sidebar destination');
 
 for(const marker of [

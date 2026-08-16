@@ -16,10 +16,10 @@ const platformStyles=fs.readFileSync('platform-console/assets/styles.css','utf8'
 const migration=fs.readFileSync('supabase/migrations/20260815143000_point9_site_supervisor_workspace.sql','utf8');
 
 for(const marker of [
-  "import { createSiteSupervisorWorkspace } from './site-supervisor.js?v=6.9.0'",
+  "siteSupervisor:()=>import('./site-supervisor.js?v=6.9.0')",
   "field:'projects.view'",
   'function fieldWorkspaceAllowed()',
-  'siteSupervisor = createSiteSupervisorWorkspace',
+  'siteSupervisor=mod.createSiteSupervisorWorkspace',
   'field:siteSupervisor?.page',
   'if(await siteSupervisor?.handleAction(action,el))return',
   'if(await siteSupervisor?.handleChange(ev))return',
@@ -29,7 +29,7 @@ for(const marker of [
 
 // Core 9–10 consolidation: Site Supervisor Workspace is the supervisor Home, not another sidebar module.
 assert.ok(app.includes("if(mode==='field'&&siteSupervisor?.page)"),'Supervisor Home must render Site Supervisor Workspace');
-assert.ok(app.includes("if(dashboardHomeMode()==='field')siteSupervisor?.load()"),'Supervisor Home must load field workspace data');
+assert.ok(app.includes("if(mode==='field'&&fieldWorkspaceAllowed())return [await ensureSiteSupervisor({load,force})]"),'Supervisor Home must activate field workspace data on demand');
 assert.ok(!app.includes("['field','hardHat',()=>L('مساحة الموقع','Field Workspace')]"),'Field Workspace must not remain a standalone sidebar destination');
 
 for(const marker of [

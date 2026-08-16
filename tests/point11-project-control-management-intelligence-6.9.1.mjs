@@ -12,9 +12,9 @@ const platformStyles=fs.readFileSync('platform-console/assets/styles.css','utf8'
 const migration=fs.readFileSync('supabase/migrations/20260815193000_point11_project_control_management_intelligence.sql','utf8');
 
 for(const marker of [
-  "import { createProjectControl } from './project-control.js?v=6.9.0'",
+  "projectControl:()=>import('./project-control.js?v=6.9.0')",
   "control:'projects.view'",
-  'projectControl = createProjectControl',
+  'projectControl=mod.createProjectControl',
   'projectControl?.handleAction',
   'projectControl?.handleChange',
   'projectControl?.handleSubmit',

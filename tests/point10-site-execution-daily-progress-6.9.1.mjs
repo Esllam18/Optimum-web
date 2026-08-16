@@ -14,7 +14,7 @@ const platformStyles=fs.readFileSync('platform-console/assets/styles.css','utf8'
 const migration=fs.readFileSync('supabase/migrations/20260815170000_point10_site_execution_daily_progress.sql','utf8');
 
 for(const marker of [
-  'siteSupervisor = createSiteSupervisorWorkspace',
+  'siteSupervisor=mod.createSiteSupervisorWorkspace',
   'formatDateTime,relativeTime',
   'openDialog,openDrawer,closeOverlay,getProfile',
   'if(await siteSupervisor?.handleSubmit(form))return',

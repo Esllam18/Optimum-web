@@ -2,13 +2,8 @@ import { api, ApiError } from './api.js?v=6.9.0';
 import { CONFIG } from './config.js?v=6.9.0';
 import { createI18n } from './i18n.js?v=6.9.0';
 import { icon } from './icons.js?v=6.9.0';
-import { createEngineeringModule } from './engineering.js?v=6.9.0';
 import { createAccessEngine } from './access-engine.js?v=6.9.0';
 import { createOrganizationOS } from './organization-os.js?v=6.9.0';
-import { createWorkOS } from './work-os.js?v=6.9.0';
-import { createOperationsCenter } from './operations-center.js?v=6.9.0';
-import { createSiteSupervisorWorkspace } from './site-supervisor.js?v=6.9.0';
-import { createProjectControl } from './project-control.js?v=6.9.0';
 
 const app = document.querySelector('#app');
 let engineering;
@@ -595,9 +590,11 @@ async function loadCompanyData() {
   if (can('files.view')) await loadFilesData();
   else Object.assign(state,{folders:[],documents:[],versions:[],favorites:[],storageMetrics:null});
   await loadNotificationsData();
-  if (can('tasks.view')) await loadWorkData();
-  else Object.assign(state,{tasks:[],taskSeries:[],taskAssignments:[],taskChecklist:[],taskComments:[],taskAttachments:[],taskEvents:[],workMetrics:null});
-  if (can('drawings.view')) await engineering.load();
+  if(can('tasks.view')){
+    if(state.page==='tasks'||state.page==='calendar')await ensureWorkOS({load:true});
+    else await loadDashboardWorkData();
+  }else Object.assign(state,{tasks:[],taskSeries:[],taskAssignments:[],taskChecklist:[],taskComments:[],taskAttachments:[],taskEvents:[],workMetrics:null});
+  await prepareLazyModulesForPage(state.page,{load:true});
 
   // Refresh usage values that may have changed while the page was open.
   await loadRuntimePolicy();
@@ -671,10 +668,25 @@ async function loadNotificationsData() {
   state.notifications=await api.select('notifications',{filters:{company_id:f,user_id:user},order:'created_at.desc',limit:150}).catch(()=>[]);
 }
 
-async function loadWorkData() {
-  if (!state.companyId || !can('tasks.view')) return;
-  if (workOS) { await workOS.load(); return; }
-  state.tasks=[];state.taskSeries=[];state.taskAssignments=[];state.taskChecklist=[];state.taskComments=[];state.taskAttachments=[];state.taskEvents=[];state.workMetrics={};
+let dashboardWorkLoadEpoch=0;
+async function loadDashboardWorkData() {
+  if(!state.companyId||!can('tasks.view')){
+    Object.assign(state,{tasks:[],taskSeries:[],taskAssignments:[],taskChecklist:[],taskComments:[],taskAttachments:[],taskEvents:[],workMetrics:null});
+    return;
+  }
+  const epoch=++dashboardWorkLoadEpoch,companyId=state.companyId;
+  const filters={scope:state.taskScope||'my',status:state.taskStatusFilter||'active',project_id:state.taskProjectFilter||'all',task_type:'all',risk:'all',due:'all',assignee_user_id:'',search:state.taskSearch||''};
+  const [query,delivery]=await Promise.all([
+    api.rpc('work_task_query',{p_company_id:companyId,p_filters:filters,p_limit:60,p_offset:0}).catch(()=>({items:[]})),
+    api.rpc('work_delivery_snapshot',{p_company_id:companyId}).catch(()=>null)
+  ]);
+  if(epoch!==dashboardWorkLoadEpoch||companyId!==state.companyId)return;
+  state.tasks=Array.isArray(query)?query:asArray(query?.items);
+  state.workMetrics=delivery;
+}
+async function loadWorkData({force=false}={}) {
+  if(!state.companyId||!can('tasks.view'))return;
+  await ensureWorkOS({load:true,force});
 }
 
 
@@ -738,13 +750,117 @@ function shell(content) {
 }
 function pageHeader(title,description,actions='') { return `<header class="page-header premium-page-header"><div class="page-header-identity"><span class="page-product-mark">${productBrandMark('page-product-logo')}</span><div class="page-header-copy"><span class="page-product-kicker">OPTIMUM</span><h2>${e(title)}</h2><p>${e(description)}</p></div></div>${actions?`<div class="page-actions">${actions}</div>`:''}</header>`; }
 function emptyState(ic,title,text,action='') { return `<div class="empty premium-empty-state"><div><span class="empty-product-mark">${productBrandMark('empty-product-logo')}</span><span class="empty-icon">${icon(ic,25)}</span><h3>${e(title)}</h3><p>${e(text)}</p>${action}</div></div>`; }
-engineering = createEngineeringModule({ api,state,can,L,e,icon,toast,formError,openDialog,openDrawer,closeOverlay,render,pageHeader,emptyState,formatDateTime,loadFilesData,openDocumentDetails });
+const lazyModuleImporters={
+  engineering:()=>import('./engineering.js?v=6.9.0'),
+  work:()=>import('./work-os.js?v=6.9.0'),
+  operations:()=>import('./operations-center.js?v=6.9.0'),
+  projectControl:()=>import('./project-control.js?v=6.9.0'),
+  siteSupervisor:()=>import('./site-supervisor.js?v=6.9.0')
+};
+const lazyModulePromises=new Map();
+const lazyModuleDataCompany=new Map();
+let routeActivationEpoch=0;
+function importLazyModule(key){
+  if(lazyModulePromises.has(key))return lazyModulePromises.get(key);
+  const importer=lazyModuleImporters[key];
+  if(!importer)return Promise.reject(new Error(`Unknown lazy module: ${key}`));
+  const promise=importer().catch((error)=>{lazyModulePromises.delete(key);throw error;});
+  lazyModulePromises.set(key,promise);
+  return promise;
+}
+function lazyDataNeedsLoad(key,force=false){
+  return Boolean(force||!state.companyId||lazyModuleDataCompany.get(key)!==state.companyId);
+}
+function markLazyDataLoaded(key){if(state.companyId)lazyModuleDataCompany.set(key,state.companyId);}
+function invalidateLazyModuleData(){lazyModuleDataCompany.clear();}
+
+async function ensureEngineering({load=false,force=false}={}){
+  if(!engineering){
+    const mod=await importLazyModule('engineering');
+    engineering=mod.createEngineeringModule({api,state,can,L,e,icon,toast,formError,openDialog,openDrawer,closeOverlay,render,pageHeader,emptyState,formatDateTime,loadFilesData,openDocumentDetails});
+  }
+  if(load&&state.companyId&&can('drawings.view')&&lazyDataNeedsLoad('engineering',force)){
+    await engineering.load();
+    markLazyDataLoaded('engineering');
+  }
+  return engineering;
+}
+async function ensureWorkOS({load=false,force=false}={}){
+  if(!workOS){
+    const mod=await importLazyModule('work');
+    workOS=mod.createWorkOS({api,state,L,e,icon,can,getProfile,formatDate,formatDateTime,relativeTime,formatBytes,openDialog,openDrawer,closeOverlay,toast,formError,render,pageHeader,emptyState,i18n,replaceRoute});
+  }
+  if(load&&state.companyId&&can('tasks.view')&&lazyDataNeedsLoad('work',force)){
+    await workOS.load();
+    markLazyDataLoaded('work');
+  }
+  return workOS;
+}
+async function ensureOperationsCenter({load=false,force=false}={}){
+  if(!operationsCenter){
+    const mod=await importLazyModule('operations');
+    operationsCenter=mod.createOperationsCenter({api,state,can,L,e,icon,getProfile,formatDate,formatDateTime,relativeTime,pageHeader,emptyState,render,toast,formError,navigateToEntity,replaceRoute,i18n});
+  }
+  if(load&&state.companyId&&can('company.view')&&lazyDataNeedsLoad('operations',force)){
+    await operationsCenter.load();
+    markLazyDataLoaded('operations');
+  }
+  return operationsCenter;
+}
+async function ensureProjectControl({load=false,force=false}={}){
+  if(!projectControl){
+    const mod=await importLazyModule('projectControl');
+    projectControl=mod.createProjectControl({api,state,can,L,e,icon,formatDate,formatDateTime,relativeTime,pageHeader,emptyState,render,toast,formError,navigateToEntity,openDrawer,openDialog,closeOverlay,i18n});
+  }
+  if(load&&state.companyId&&can('projects.view')&&lazyDataNeedsLoad('projectControl',force)){
+    await projectControl.load();
+    markLazyDataLoaded('projectControl');
+  }
+  return projectControl;
+}
+async function ensureSiteSupervisor({load=false,force=false}={}){
+  if(!siteSupervisor){
+    const mod=await importLazyModule('siteSupervisor');
+    siteSupervisor=mod.createSiteSupervisorWorkspace({
+      api,state,can,L,e,icon,formatDate,formatDateTime,relativeTime,pageHeader,emptyState,render,toast,formError,navigateToEntity,replaceRoute,openDialog,openDrawer,closeOverlay,getProfile,
+      openNewDrawing:async(scope)=>(await ensureEngineering({load:true})).openNewDrawing(scope),
+      openTakeoff:async(id,options)=>(await ensureEngineering({load:true})).openTakeoff(id,options),
+      openQuickUpload:openFieldFilesContext,
+      openNewTask:(defaults)=>openTaskDialog(null,defaults)
+    });
+  }
+  if(load&&state.companyId&&fieldWorkspaceAllowed()&&lazyDataNeedsLoad('siteSupervisor',force)){
+    await siteSupervisor.load();
+    markLazyDataLoaded('siteSupervisor');
+  }
+  return siteSupervisor;
+}
+
+async function prepareLazyModulesForPage(page=state.page,{load=false,force=false}={}){
+  if(!state.companyId)return [];
+  if(page==='engineering'&&can('drawings.view'))return [await ensureEngineering({load,force})];
+  if((page==='tasks'||page==='calendar')&&can('tasks.view'))return [await ensureWorkOS({load,force})];
+  if(page==='operations'&&can('company.view'))return [await ensureOperationsCenter({load,force})];
+  if(page==='control'&&can('projects.view'))return [await ensureProjectControl({load,force})];
+  if(page==='field'&&fieldWorkspaceAllowed())return [await ensureSiteSupervisor({load,force})];
+  if(page==='dashboard'){
+    const mode=dashboardHomeMode();
+    if(mode==='field'&&fieldWorkspaceAllowed())return [await ensureSiteSupervisor({load,force})];
+    if(mode==='management'){
+      const jobs=[ensureOperationsCenter({load,force})];
+      if(can('projects.view'))jobs.push(ensureProjectControl({load,force}));
+      return Promise.all(jobs);
+    }
+  }
+  return [];
+}
+function lazyModulePage(page=state.page){
+  return `${pageHeader(pageTitle(),pageSubtitle())}<section class="card section-card"><div class="entity-workspace-loading"><span class="busy-dot"></span><strong>${L('جارٍ تجهيز مساحة العمل…','Preparing workspace…')}</strong><small>${L('يتم تحميل الوحدة المطلوبة فقط للحفاظ على سرعة Optimum.','Only the requested module is loading to keep Optimum fast.')}</small></div></section>`;
+}
+
 accessEngine = createAccessEngine({ api,state,L,e,icon,can,entitlementEnabled,effectiveLimit,limitReached,getProfile,getRole,roleLabel,formatDate,formatDateTime,openDialog,openDrawer,closeOverlay,toast,formError,loadCompanyData,render,broadcastOrganizationChange,imageOrInitials,permissionGroups,moduleLabel,i18n });
 organizationOS = createOrganizationOS({ api,state,L,e,icon,can,getProfile,getRole,roleLabel,formatDate,formatDateTime,openDialog,openDrawer,closeOverlay,toast,formError,loadCompanyData,render,broadcastOrganizationChange,pageHeader,emptyState,replaceRoute,accessEngine,i18n,imageOrInitials,navAllowed });
-workOS = createWorkOS({ api,state,L,e,icon,can,getProfile,formatDate,formatDateTime,relativeTime,formatBytes,openDialog,openDrawer,closeOverlay,toast,formError,render,pageHeader,emptyState,i18n,replaceRoute });
-operationsCenter = createOperationsCenter({ api,state,can,L,e,icon,getProfile,formatDate,formatDateTime,relativeTime,pageHeader,emptyState,render,toast,formError,navigateToEntity,replaceRoute,i18n });
-projectControl = createProjectControl({ api,state,can,L,e,icon,formatDate,formatDateTime,relativeTime,pageHeader,emptyState,render,toast,formError,navigateToEntity,openDrawer,openDialog,closeOverlay,i18n });
-siteSupervisor = createSiteSupervisorWorkspace({ api,state,can,L,e,icon,formatDate,formatDateTime,relativeTime,pageHeader,emptyState,render,toast,formError,navigateToEntity,replaceRoute,openDialog,openDrawer,closeOverlay,getProfile,openNewDrawing:(scope)=>engineering.openNewDrawing(scope),openTakeoff:(id,options)=>engineering.openTakeoff(id,options),openQuickUpload:openFieldFilesContext,openNewTask:(defaults)=>openTaskDialog(null,defaults) });
+
 function statusBadge(status) { const map={active:'success',trial:'info',suspended:'danger',expired:'danger',planned:'info',on_hold:'warning',completed:'success',archived:'',invited:'info',left:'',pending:'warning',pending_activation:'warning',accepted:'success',revoked:'danger',ready:'success',uploading:'warning',failed:'danger'}; const custom={pending_activation:L('بانتظار أول دخول','Pending first login')}; const label=custom[status]||(status==='on_hold'?t('onHold'):(t(status)||status)); return `<span class="badge badge-${map[status]||''}">${e(label)}</span>`; }
 const activityCatalog={
   'company.created':[L('تم إنشاء الشركة','Company created'),'building','company'],
@@ -1258,10 +1374,10 @@ function render() {
   if (state.loading) { app.innerHTML=state.company?shell(loadingView()):loadingView(); return; }
   if (state.accountSecurity?.must_change_password || api.session?.recovery) { app.innerHTML=passwordSetupView(); return; }
   if (!state.company) { app.innerHTML=accessPendingView(); return; }
-  const pages={dashboard:dashboardPage,operations:operationsCenter?.page||dashboardPage,control:projectControl?.page||dashboardPage,field:siteSupervisor?.page||dashboardPage,tasks:workOS?.page||tasksPage,calendar:workOS?.calendarPage||calendarPage,engineering:engineering.page,team:teamPage,roles:rolesPage,projects:projectsPage,delivery:deliveryPage,files:filesPage,trash:trashPage,activity:workOS?.activityPage||activityPage,organization:organizationOS?.page||(()=>forbiddenPage()),settings:settingsPage};
+  const pages={dashboard:dashboardPage,operations:operationsCenter?.page||(()=>lazyModulePage('operations')),control:projectControl?.page||(()=>lazyModulePage('control')),field:siteSupervisor?.page||(()=>lazyModulePage('field')),tasks:workOS?.page||(()=>lazyModulePage('tasks')),calendar:workOS?.calendarPage||(()=>lazyModulePage('calendar')),engineering:engineering?.page||(()=>lazyModulePage('engineering')),team:teamPage,roles:rolesPage,projects:projectsPage,delivery:deliveryPage,files:filesPage,trash:trashPage,activity:workOS?.activityPage||activityPage,organization:organizationOS?.page||(()=>forbiddenPage()),settings:settingsPage};
   if (!navAllowed(state.page)) replaceRoute('dashboard');
   app.innerHTML=shell((pages[state.page]||dashboardPage)());
-  queueMicrotask(()=>{if(state.page==='team')applyTeamFilters();if(state.page==='roles')applyRoleFilters();if(state.page==='projects'){applyProjectFilters();restoreEntityWorkspaceFromRoute();}if(state.page==='delivery'){const key=deliveryLoadKey();if(!state.deliveryLoading&&state.deliveryLoadedKey!==key)loadDeliveryWorkspace();}if(state.page==='operations')operationsCenter?.load();if(state.page==='control')projectControl?.load();if(state.page==='field')siteSupervisor?.load();if(state.page==='dashboard'){if(dashboardHomeMode()==='field')siteSupervisor?.load();else{operationsCenter?.load();if(can('projects.view'))projectControl?.load();}}});
+  queueMicrotask(()=>{if(state.page==='team')applyTeamFilters();if(state.page==='roles')applyRoleFilters();if(state.page==='projects'){applyProjectFilters();restoreEntityWorkspaceFromRoute();}if(state.page==='delivery'){const key=deliveryLoadKey();if(!state.deliveryLoading&&state.deliveryLoadedKey!==key)loadDeliveryWorkspace();}});
 }
 
 let entityRouteRestoring=false;
@@ -1274,7 +1390,7 @@ async function restoreEntityWorkspaceFromRoute(){
     else if(state.entityRoute.kind==='cabinet')await openCabinetDetails(state.entityRoute.id,{syncRoute:false});
   }finally{entityRouteRestoring=false;}
 }
-function helpContent(){const guides={operations:operationsCenter?.help?.()||[L('ابدأ من يومك ثم افتح العناصر التي تحتاج قرارًا.','Start with My Day, then open anything that needs a decision.')],field:siteSupervisor?.help?.()||[L('ابدأ من الموقع ثم اختر المهمة أو الرسم أو الكابينة التي ستعمل عليها.','Start from the site, then choose the task, drawing, or cabinet you will work on.')],tasks:[L('اختر نطاق العمل: مهامي، كل الفريق، أو المهام المفتوحة للاستلام.','Choose My Work, Team Work, or Open Tasks.'),L('افتح أي مهمة لتحديث حالتها وإكمال قائمة التحقق وإضافة التعليقات والمرفقات.','Open a task to update status, checklist, comments, and attachments.')],calendar:[L('يعرض التقويم المهام حسب تاريخ البداية أو الاستحقاق.','The calendar displays tasks by start or due date.'),L('اضغط على المهمة لفتح التفاصيل، واستخدم الأسهم للتنقل بين الشهور.','Select a task to open details and use the arrows to move between months.')],engineering:engineering.help(),files:[L('اختر المشروع ثم الموقع، وبعدها تنقل بين المجلدات بالكروت أو الشجرة.','Choose a project and site, then navigate with cards or the tree.'),...(entitlementEnabled('feature.file_versioning')?[L('عند رفع ملف مشابه، اختر هل هو ملف جديد أم إصدار جديد لملف قائم.','When a similar file exists, choose whether it is new or a new version.')]:[L('إدارة الإصدارات غير مفعلة لهذه الشركة؛ الواجهة تعرض الملف الحالي فقط.','File versioning is disabled for this company; the workspace exposes only the current file.')])],trash:[L('استرجع المجلد الأب قبل الملفات أو المجلدات الموجودة داخله.','Restore a parent folder before restoring items inside it.'),L('الحذف النهائي متوقف في مركز الاستعادة؛ يمكنك المراجعة والاستعادة بأمان.','Permanent deletion is disabled in Recovery Center; review and restore safely.')],dashboard:[t('dashboardHelp1'),t('dashboardHelp2')],team:[t('teamHelp1'),t('teamHelp2')],roles:[t('rolesHelp1'),t('rolesHelp2')],projects:[t('projectsHelp1'),L('إنشاء المشروع أو الموقع يولد هيكل المجلدات تلقائيًا.','Creating a project or site generates the folder structure automatically.')],activity:[t('activityHelp1'),t('activityHelp2')],organization:[L('مركز المؤسسة يجمع الهيكل والجاهزية والصحة وساعات العمل في مصدر واحد.','Organization OS combines structure, readiness, health, and work settings in one source of truth.'),L('أي تغيير تنظيمي يُراجع تلقائيًا ويصل للجلسات الأخرى بدون تحديث يدوي.','Organization changes are detected and synchronized across sessions without manual refresh.')],delivery:[L('ابدأ من المتطلبات الناقصة فقط؛ Optimum يجمع الأدلة الموجودة في CDE بدون نسخها.','Start with missing requirements only; Optimum collects existing CDE evidence without copying it.'),L('جمّد الإصدارات عند الجاهزية ثم قدّم الحزمة للمراجعة والاعتماد.','Freeze versions when ready, then submit the package for review and approval.')],settings:[t('settingsHelp1'),t('settingsHelp2')]};const items=guides[state.page]||guides.dashboard;return `<section class="help-section"><h4>${icon('info',17)} ${e(t('howItWorks'))}</h4>${items.map((x,i)=>`<div class="help-step"><span class="help-step-num">${i+1}</span><span>${e(x)}</span></div>`).join('')}</section><section class="help-section"><h4>${icon('check',17)} ${e(t('tips'))}</h4><div class="alert alert-info"><div class="alert-copy"><p>${L('الأزرار الظاهرة تتغير حسب صلاحياتك وحالة اشتراك الشركة.','Visible actions change according to your permissions and company subscription status.')}</p></div></div></section><button class="btn btn-primary btn-block" data-action="close-overlay">${e(t('gotIt'))}</button>`;}
+function helpContent(){const guides={operations:operationsCenter?.help?.()||[L('ابدأ من يومك ثم افتح العناصر التي تحتاج قرارًا.','Start with My Day, then open anything that needs a decision.')],field:siteSupervisor?.help?.()||[L('ابدأ من الموقع ثم اختر المهمة أو الرسم أو الكابينة التي ستعمل عليها.','Start from the site, then choose the task, drawing, or cabinet you will work on.')],tasks:[L('اختر نطاق العمل: مهامي، كل الفريق، أو المهام المفتوحة للاستلام.','Choose My Work, Team Work, or Open Tasks.'),L('افتح أي مهمة لتحديث حالتها وإكمال قائمة التحقق وإضافة التعليقات والمرفقات.','Open a task to update status, checklist, comments, and attachments.')],calendar:[L('يعرض التقويم المهام حسب تاريخ البداية أو الاستحقاق.','The calendar displays tasks by start or due date.'),L('اضغط على المهمة لفتح التفاصيل، واستخدم الأسهم للتنقل بين الشهور.','Select a task to open details and use the arrows to move between months.')],engineering:engineering?.help?.()||[L('افتح مساحة CAD والهندسة لعرض أدوات الرسم والسجل والمراجعات.','Open CAD & Engineering to view drawing, history, and review tools.')],files:[L('اختر المشروع ثم الموقع، وبعدها تنقل بين المجلدات بالكروت أو الشجرة.','Choose a project and site, then navigate with cards or the tree.'),...(entitlementEnabled('feature.file_versioning')?[L('عند رفع ملف مشابه، اختر هل هو ملف جديد أم إصدار جديد لملف قائم.','When a similar file exists, choose whether it is new or a new version.')]:[L('إدارة الإصدارات غير مفعلة لهذه الشركة؛ الواجهة تعرض الملف الحالي فقط.','File versioning is disabled for this company; the workspace exposes only the current file.')])],trash:[L('استرجع المجلد الأب قبل الملفات أو المجلدات الموجودة داخله.','Restore a parent folder before restoring items inside it.'),L('الحذف النهائي متوقف في مركز الاستعادة؛ يمكنك المراجعة والاستعادة بأمان.','Permanent deletion is disabled in Recovery Center; review and restore safely.')],dashboard:[t('dashboardHelp1'),t('dashboardHelp2')],team:[t('teamHelp1'),t('teamHelp2')],roles:[t('rolesHelp1'),t('rolesHelp2')],projects:[t('projectsHelp1'),L('إنشاء المشروع أو الموقع يولد هيكل المجلدات تلقائيًا.','Creating a project or site generates the folder structure automatically.')],activity:[t('activityHelp1'),t('activityHelp2')],organization:[L('مركز المؤسسة يجمع الهيكل والجاهزية والصحة وساعات العمل في مصدر واحد.','Organization OS combines structure, readiness, health, and work settings in one source of truth.'),L('أي تغيير تنظيمي يُراجع تلقائيًا ويصل للجلسات الأخرى بدون تحديث يدوي.','Organization changes are detected and synchronized across sessions without manual refresh.')],delivery:[L('ابدأ من المتطلبات الناقصة فقط؛ Optimum يجمع الأدلة الموجودة في CDE بدون نسخها.','Start with missing requirements only; Optimum collects existing CDE evidence without copying it.'),L('جمّد الإصدارات عند الجاهزية ثم قدّم الحزمة للمراجعة والاعتماد.','Freeze versions when ready, then submit the package for review and approval.')],settings:[t('settingsHelp1'),t('settingsHelp2')]};const items=guides[state.page]||guides.dashboard;return `<section class="help-section"><h4>${icon('info',17)} ${e(t('howItWorks'))}</h4>${items.map((x,i)=>`<div class="help-step"><span class="help-step-num">${i+1}</span><span>${e(x)}</span></div>`).join('')}</section><section class="help-section"><h4>${icon('check',17)} ${e(t('tips'))}</h4><div class="alert alert-info"><div class="alert-copy"><p>${L('الأزرار الظاهرة تتغير حسب صلاحياتك وحالة اشتراك الشركة.','Visible actions change according to your permissions and company subscription status.')}</p></div></div></section><button class="btn btn-primary btn-block" data-action="close-overlay">${e(t('gotIt'))}</button>`;}
 
 function toLocalInput(d){if(!d)return'';const x=new Date(d);x.setMinutes(x.getMinutes()-x.getTimezoneOffset());return x.toISOString().slice(0,16);}
 
@@ -1371,7 +1487,7 @@ function openStorageIntelligence(){
   const x=state.storageIntelligence||{},max=Number(x.max_storage_bytes||state.storageMetrics?.max_storage_bytes||0),used=Number(x.used_bytes||0),pct=max?usagePercent(used,max):0;
   openDrawer({title:L('ذكاء التخزين','Storage Intelligence'),subtitle:L('اعرف أين تذهب المساحة قبل اتخاذ أي قرار حذف.','Understand storage use before making deletion decisions.'),wide:true,body:`<section class="storage-intelligence-hero storage-intelligence-summary"><div><span class="eyebrow">${L('إدارة التخزين','STORAGE INTELLIGENCE')}</span><h2>${formatBytes(used)}</h2><p>${max?`${formatBytes(used)} ${L('من','of')} ${formatBytes(max)}`:L('بدون حد مسجل','No recorded limit')}</p></div><div class="storage-intelligence-capacity"><strong>${pct}%</strong><small>${L('مستخدم','used')}</small></div></section>${percentBar(pct)}<div class="pdc-kpi-grid storage-decision-grid"><article>${icon('trash',17)}<strong>${formatBytes(x.trash_bytes||0)}</strong><span>${L('في مركز الاستعادة','In recovery')}</span></article><article>${icon('repeat',17)}<strong>${formatBytes(x.old_version_bytes||0)}</strong><span>${L('إصدارات قديمة','Old versions')}</span></article><article>${icon('briefcase',17)}<strong>${asArray(x.by_project).length}</strong><span>${L('مشاريع تستخدم المساحة','Projects using storage')}</span></article></div><div class="section-head storage-section-head"><div><h3>${L('استخدام المساحة حسب المشروع','Storage by project')}</h3><p>${L('افتح المشروع لفهم السياق قبل التنظيف.','Open the project before cleanup decisions.')}</p></div></div><div class="storage-breakdown">${asArray(x.by_project).map(p=>`<button data-action="open-project" data-id="${p.id}"><span><strong>${e(p.code)} — ${e(p.name)}</strong></span><b>${formatBytes(p.bytes)}</b></button>`).join('')||`<p class="muted">${L('لا يوجد استخدام مسجل','No recorded usage')}</p>`}</div><div class="section-head storage-section-head"><div><h3>${L('أكبر الملفات الحالية','Largest current files')}</h3><p>${L('اختصار للوصول إلى العناصر الأعلى استهلاكًا.','Quick access to the largest current items.')}</p></div></div><div class="storage-breakdown">${asArray(x.largest_files).map(d=>`<button data-action="navigate-entity" data-type="document" data-id="${d.id}"><span><strong>${e(d.display_name)}</strong></span><b>${formatBytes(d.size_bytes)}</b></button>`).join('')||`<p class="muted">${L('لا توجد ملفات','No files')}</p>`}</div>`});
 }
-async function navigateToEntityLegacy68(type,id){try{const c=await api.rpc('resolve_entity_context',{p_entity_type:type,p_entity_id:id});closeOverlay();if(c.type==='project'){location.hash='#/projects';render();await openProjectDetails(c.project_id);}else if(c.type==='site'){location.hash='#/projects';render();await openSiteDetails(c.site_id);}else if(c.type==='folder'||c.type==='document'){state.selectedProjectId=c.project_id;state.selectedSiteId=c.site_id||'project';state.currentFolderId=c.folder_id||null;localStorage.setItem(filesProjectKey,state.selectedProjectId||'');localStorage.setItem(filesSiteKey,state.selectedSiteId||'project');location.hash='#/files';await loadFilesData();render();if(c.type==='document')await openDocumentDetails(c.document_id);}else if(c.type==='task'){location.hash='#/tasks';render();await workOS?.openTask(c.task_id);}else if(c.type==='engineering_drawing'){location.hash='#/engineering';render();await engineering.openDrawing(c.drawing_id);}}catch(err){formError(err);}}
+async function navigateToEntityLegacy68(type,id){try{const c=await api.rpc('resolve_entity_context',{p_entity_type:type,p_entity_id:id});closeOverlay();if(c.type==='project'){location.hash='#/projects';render();await openProjectDetails(c.project_id);}else if(c.type==='site'){location.hash='#/projects';render();await openSiteDetails(c.site_id);}else if(c.type==='folder'||c.type==='document'){state.selectedProjectId=c.project_id;state.selectedSiteId=c.site_id||'project';state.currentFolderId=c.folder_id||null;localStorage.setItem(filesProjectKey,state.selectedProjectId||'');localStorage.setItem(filesSiteKey,state.selectedSiteId||'project');location.hash='#/files';await loadFilesData();render();if(c.type==='document')await openDocumentDetails(c.document_id);}else if(c.type==='task'){const module=await ensureWorkOS({load:true});location.hash='#/tasks';render();await module.openTask(c.task_id);}else if(c.type==='engineering_drawing'){const module=await ensureEngineering({load:true});location.hash='#/engineering';render();await module.openDrawing(c.drawing_id);}}catch(err){formError(err);}}
 
 function openUploadDialogLegacy68(){if(!can('files.upload')){toast('error',L('غير مسموح','Not allowed'),L('لا تملك صلاحية رفع الملفات.','You do not have permission to upload files.'));return;}if(limitReached('storage')){toast('error',L('مساحة التخزين ممتلئة','Storage limit reached'),planLimitLabel('storage'));return;}if(!currentFolder())return;state.pendingUploads=[];openDialog({title:L('رفع الملفات','Upload files'),subtitle:folderDisplay(currentFolder()),large:true,body:`<form class="form-grid" data-form="upload-files"><label class="drop-zone" for="upload-input">${icon('upload',28)}<strong>${L('اختر ملفًا أو عدة ملفات','Choose one or multiple files')}</strong><span>${L('الحد الأقصى للملف الواحد 1 GB','Maximum 1 GB per file')}</span><input id="upload-input" type="file" multiple hidden /></label><div id="upload-review"></div><div class="form-row two"><div class="form-row"><label>${L('نوع المستند','Document type')}</label><select class="select" name="document_type"><option value="general">${L('عام','General')}</option><option value="drawing">${L('رسم','Drawing')}</option><option value="report">${L('تقرير','Report')}</option><option value="contract">${L('عقد','Contract')}</option><option value="photo">${L('صورة','Photo')}</option><option value="boq">BOQ</option></select></div><div class="form-row"><label>${L('الكلمات المفتاحية — افصل بفاصلة','Tags — comma separated')}</label><input class="input" name="tags" /></div></div><div class="form-row"><label>${e(t('description'))}</label><textarea class="textarea" name="description"></textarea></div><button class="btn btn-primary" type="submit" disabled id="upload-submit">${icon('upload')} ${L('بدء الرفع','Start upload')}</button></form>`});}
 function uploadReviewHtml(){if(!state.pendingUploads.length)return'';const destination=state.folders.find(f=>f.id===state.pendingUploads[0]?.folderId)||currentFolder();return `<div class="upload-review-list">${state.pendingUploads.map((item,i)=>{const matches=state.documents.filter(d=>d.folder_id===item.folderId&&d.state==='active'&&normalizeName(d.display_name)===normalizeName(item.file.name)),progress=state.uploadProgress[i]||{status:'ready',percent:0},busy=['uploading','finalizing','done'].includes(progress.status),statusText=progress.status==='uploading'?`${L('جاري الرفع','Uploading')} ${progress.percent}%`:progress.status==='finalizing'?L('جاري تثبيت الإصدار','Finalizing version'):progress.status==='done'?L('تم الرفع','Uploaded'):progress.status==='error'?L('فشل الرفع — أصلح السبب ثم أعد المحاولة','Upload failed — fix and retry'):L('جاهز للرفع','Ready');return `<div class="upload-review-row cde-upload-row ${progress.status}"><span class="document-icon">${fileTypeIcon(item.file.type,20)}</span><div class="upload-review-main"><input class="input upload-display-name" data-index="${i}" value="${e(item.displayName)}" ${busy?'disabled':''}/><small>${e(item.file.name)} · ${formatBytes(item.file.size)}</small><div class="upload-suggestion-chips">${item.documentType&&item.documentType!=='general'?`<span>${icon('sparkle',10)} ${e(documentTypeLabel(item.documentType))}</span>`:''}${item.discipline?`<span>${e(disciplineLabel(item.discipline))}</span>`:''}${item.revisionCode?`<span>${L('مراجعة','Rev')} ${e(item.revisionCode)}</span>`:''}</div><div class="upload-progress"><span style="width:${progress.percent||0}%"></span></div><em>${e(statusText)}${progress.error?` · ${e(progress.error)}`:''}</em></div><div class="upload-row-fields"><label class="input-with-label"><span>${L('طريقة الحفظ','Upload mode')}</span><select class="select upload-mode" data-index="${i}" ${busy?'disabled':''}><option value="new" ${item.mode==='new'?'selected':''}>${L('مستند جديد','New document')}</option>${entitlementEnabled('feature.file_versioning')?matches.map(d=>`<option value="version:${d.id}" ${item.documentId===d.id?'selected':''}>${L('إصدار جديد من','New version of')} ${e(d.display_name)}</option>`).join(''):''}</select></label><label class="input-with-label"><span>${L('نوع المستند','Document type')}</span><select class="select upload-doc-type" data-index="${i}" ${busy?'disabled':''}>${documentTypeOptions(item.documentType)}</select></label><label class="input-with-label"><span>${L('المراجعة الهندسية','Engineering revision')}</span><input class="input upload-revision" data-index="${i}" value="${e(item.revisionCode||'')}" placeholder="A / 0 / R2" ${busy?'disabled':''}/></label></div></div>`;}).join('')}</div>`;}
@@ -1534,7 +1650,7 @@ async function previewVersion(id){
   }catch(err){formError(err,L('تعذر فتح الملف','Could not open file'));}
 }
 async function toggleFavorite(type,id){const existing=state.favorites.find((x)=>x.entity_type===type&&x.entity_id===id);try{if(existing)await api.remove('favorites',{user_id:`eq.${api.user.id}`,entity_type:`eq.${type}`,entity_id:`eq.${id}`});else await api.insert('favorites',{user_id:api.user.id,company_id:state.companyId,entity_type:type,entity_id:id});await loadFilesData();render();}catch(err){formError(err);}}
-async function refreshAll(showToast=false){state.loading=true;render();try{await loadUserContext();if(showToast)toast('success',t('success'),t('refresh'));}catch(err){formError(err,t('loadFailed'));}finally{state.loading=false;render();}}
+async function refreshAll(showToast=false){state.loading=true;render();invalidateLazyModuleData();try{await loadUserContext();if(showToast)toast('success',t('success'),t('refresh'));}catch(err){formError(err,t('loadFailed'));}finally{state.loading=false;render();}}
 async function handleInviteToken(){
   const token=new URLSearchParams(location.search).get('invite')||localStorage.getItem(pendingInviteKey);
   if(!token||!api.session)return false;
@@ -1606,7 +1722,17 @@ async function boot(){
   }
 }
 window.addEventListener('popstate',(ev)=>{if(Number.isFinite(ev.state?.optimumEntityDepth))state.entityHistoryDepth=ev.state.optimumEntityDepth;});
-window.addEventListener('hashchange',()=>{const route=parseAppRoute();state.page=route.page;state.entityRoute=route.entityKind?{kind:route.entityKind,id:route.entityId}:null;state.sidebarOpen=false;render();queueMicrotask(()=>restoreEntityWorkspaceFromRoute());});
+async function activateRoute(route=parseAppRoute()){
+  const epoch=++routeActivationEpoch;
+  state.page=route.page;state.entityRoute=route.entityKind?{kind:route.entityKind,id:route.entityId}:null;state.sidebarOpen=false;
+  render();
+  try{await prepareLazyModulesForPage(state.page,{load:true});}
+  catch(error){if(epoch===routeActivationEpoch)formError(error,L('تعذر تحميل مساحة العمل المطلوبة','Could not load the requested workspace'));return;}
+  if(epoch!==routeActivationEpoch)return;
+  render();
+  queueMicrotask(()=>restoreEntityWorkspaceFromRoute());
+}
+window.addEventListener('hashchange',()=>{void activateRoute(parseAppRoute());});
 window.addEventListener('keydown',(ev)=>{const commandInput=ev.target?.id==='command-search';if(commandInput&&['ArrowDown','ArrowUp'].includes(ev.key)){ev.preventDefault();moveCommandSelection(ev.key==='ArrowDown'?1:-1);return;}if(commandInput&&ev.key==='Enter'&&!ev.isComposing){ev.preventDefault();activateCommandSelection();return;}if(engineering?.keydown(ev))return;if(ev.key==='Escape')dismissOverlay();if((ev.ctrlKey||ev.metaKey)&&ev.key.toLowerCase()==='k'&&api.session&&state.company&&can('search.use')){ev.preventDefault();openCommand();}});
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',()=>{if(state.prefs.theme==='system'){applyPreferences();render();}});
 
@@ -1851,7 +1977,7 @@ async function openDocumentDetails(id){
   }catch(err){formError(err);}
 }
 
-async function navigateToEntity(type,id){try{if(['site_daily_log','site_inspection','site_field_issue','site_constraint'].includes(type)){const c=await api.rpc('resolve_site_execution_context',{p_entity_type:type,p_entity_id:id});closeOverlay();location.hash='#/dashboard';render();await siteSupervisor?.openEntity(type,id,c.site_id,c.work_date);return;}const c=await api.rpc('resolve_entity_context',{p_entity_type:type,p_entity_id:id});closeOverlay();if(c.type==='project'){location.hash='#/projects';render();await openProjectDetails(c.project_id);}else if(c.type==='site'){location.hash='#/projects';render();await openSiteDetails(c.site_id);}else if(c.type==='site_cabinet'){location.hash='#/projects';render();await openCabinetDetails(c.cabinet_id);}else if(c.type==='site_claim_package'){location.hash='#/projects';render();await openClaimPackageDetails(c.claim_package_id);}else if(c.type==='folder'||c.type==='document'){await openFilesContext(c.project_id,c.site_id,c.folder_id||null);if(c.type==='document')await openDocumentDetails(c.document_id);}else if(c.type==='task'){location.hash='#/tasks';render();await workOS?.openTask(c.task_id);}else if(c.type==='engineering_drawing'){location.hash='#/engineering';render();await engineering.openDrawing(c.drawing_id);}}catch(err){formError(err);}}
+async function navigateToEntity(type,id){try{if(['site_daily_log','site_inspection','site_field_issue','site_constraint'].includes(type)){const c=await api.rpc('resolve_site_execution_context',{p_entity_type:type,p_entity_id:id});closeOverlay();const module=await ensureSiteSupervisor({load:true});location.hash='#/dashboard';render();await module.openEntity(type,id,c.site_id,c.work_date);return;}const c=await api.rpc('resolve_entity_context',{p_entity_type:type,p_entity_id:id});closeOverlay();if(c.type==='project'){location.hash='#/projects';render();await openProjectDetails(c.project_id);}else if(c.type==='site'){location.hash='#/projects';render();await openSiteDetails(c.site_id);}else if(c.type==='site_cabinet'){location.hash='#/projects';render();await openCabinetDetails(c.cabinet_id);}else if(c.type==='site_claim_package'){location.hash='#/projects';render();await openClaimPackageDetails(c.claim_package_id);}else if(c.type==='folder'||c.type==='document'){await openFilesContext(c.project_id,c.site_id,c.folder_id||null);if(c.type==='document')await openDocumentDetails(c.document_id);}else if(c.type==='task'){const module=await ensureWorkOS({load:true});location.hash='#/tasks';render();await module.openTask(c.task_id);}else if(c.type==='engineering_drawing'){const module=await ensureEngineering({load:true});location.hash='#/engineering';render();await module.openDrawing(c.drawing_id);}}catch(err){formError(err);}}
 function openUploadDialog(){
   if(filesContextReadOnly()){toast('info',L('السياق للقراءة فقط','Read-only context'),L('أعد تنشيط المشروع أو الموقع قبل رفع ملفات جديدة.','Reactivate the project or site before uploading new files.'));return;}
   if(!can('files.upload')){toast('error',L('غير مسموح','Not allowed'),L('لا تملك صلاحية رفع الملفات.','You do not have permission to upload files.'));return;}
@@ -1875,9 +2001,17 @@ function openBulkMoveDocuments(){const ids=[...state.fileSelected];if(!ids.lengt
 async function bulkRecoverDocuments(){const ids=[...state.fileSelected];if(!ids.length)return;confirmDialog({title:L('نقل المحدد إلى مركز الاستعادة','Move selected to Recovery Center'),message:L('كل الإصدارات ستبقى محفوظة ويمكن الاستعادة لاحقًا.','All versions remain preserved and can be restored later.'),danger:true,onConfirm:async()=>{try{toast('info',L('جارٍ نقل المستندات','Moving documents'),'',2500);for(const id of ids)await api.rpc('trash_document',{p_document_id:id});state.fileSelected=[];closeOverlay();await loadFilesData({refreshDirectory:true});render();toast('success',L('تم النقل إلى مركز الاستعادة','Moved to Recovery Center'));}catch(err){formError(err);}}});}
 document.addEventListener('pointerdown',(ev)=>{const menu=portal.querySelector('.menu-pop');if(menu&&!menu.contains(ev.target)&&!ev.target.closest('[data-action="account-menu"],[data-action="utility-menu"],[data-action="team-member-menu"]'))closeOverlay();document.querySelectorAll('.team-more-filters[open],.workos-more-filters[open]').forEach((details)=>{if(!details.contains(ev.target))details.removeAttribute('open');});},true);
 
+function prefetchLazyNavigation(ev){
+  const nav=ev.target?.closest?.('[data-nav]');
+  if(!nav||!navAllowed(nav.dataset.nav))return;
+  void prepareLazyModulesForPage(nav.dataset.nav,{load:false}).catch(()=>{});
+}
+document.addEventListener('pointerover',prefetchLazyNavigation,{passive:true});
+document.addEventListener('focusin',prefetchLazyNavigation);
+
 document.addEventListener('click',async(ev)=>{
   const nav=ev.target.closest('[data-nav]');if(nav){const targetPage=nav.dataset.nav;if(!navAllowed(targetPage)){toast('error',L('هذه الوحدة غير متاحة','This module is unavailable'),L('تم حجبها حسب ميزات الشركة أو صلاحيات حسابك.','It is blocked by company features or your effective permissions.'));return;}closeOverlay();location.hash=`#/${targetPage}`;return;}
-  const el=ev.target.closest('[data-action]');if(!el)return;const action=el.dataset.action;if(!guardAction(action))return;if(await engineering.handleAction(action,el))return;if(await accessEngine?.handleAction(action,el))return;if(await organizationOS?.handleAction(action,el))return;if(await workOS?.handleAction(action,el))return;if(await operationsCenter?.handleAction(action,el))return;
+  const el=ev.target.closest('[data-action]');if(!el)return;const action=el.dataset.action;if(!guardAction(action))return;if(await engineering?.handleAction?.(action,el))return;if(await accessEngine?.handleAction(action,el))return;if(await organizationOS?.handleAction(action,el))return;if(await workOS?.handleAction(action,el))return;if(await operationsCenter?.handleAction(action,el))return;
   if(await projectControl?.handleAction(action,el))return;
   if(await siteSupervisor?.handleAction(action,el))return;
   if(action==='close-overlay')dismissOverlay();
@@ -1902,7 +2036,7 @@ document.addEventListener('click',async(ev)=>{
   else if(action==='command')openCommand();
   else if(action==='account-menu')openAccountMenu(el);
   else if(action==='company-switch')openCompanySwitch();
-  else if(action==='select-company'){operationsCenter?.reset();siteSupervisor?.reset();state.companyId=el.dataset.id;localStorage.setItem(CONFIG.selectedCompanyKey,state.companyId);state.currentFolderId=null;state.selectedTaskId=null;state.staleUploadsCleaned=false;closeOverlay();await refreshAll();}
+  else if(action==='select-company'){operationsCenter?.reset();siteSupervisor?.reset();invalidateLazyModuleData();state.companyId=el.dataset.id;localStorage.setItem(CONFIG.selectedCompanyKey,state.companyId);state.currentFolderId=null;state.selectedTaskId=null;state.staleUploadsCleaned=false;closeOverlay();await refreshAll();}
   else if(action==='sign-out'){closeOverlay();await api.signOut();Object.assign(state,{session:null,profile:null,accountSecurity:null,company:null,platformAdmin:null,bootError:null,inviteConflict:null,loading:false});render();}
   else if(action==='notifications')openNotifications();
   else if(action==='mark-notifications-read'){await api.rpc('mark_all_notifications_read',{p_company_id:state.companyId});await loadNotificationsData();openNotifications();render();}
@@ -1952,10 +2086,10 @@ document.addEventListener('click',async(ev)=>{
   else if(action==='open-site')await openSiteDetails(el.dataset.id);
   else if(action==='open-project-files'){state.selectedProjectId=el.dataset.id;state.selectedSiteId='project';state.currentFolderId=null;state.fileSearch='';localStorage.setItem(filesProjectKey,state.selectedProjectId);localStorage.setItem(filesSiteKey,'project');closeOverlay();location.hash='#/files';await loadFilesData();render();}
   else if(action==='open-site-files'){state.selectedProjectId=el.dataset.projectId;state.selectedSiteId=el.dataset.siteId;state.currentFolderId=null;state.fileSearch='';localStorage.setItem(filesProjectKey,state.selectedProjectId);localStorage.setItem(filesSiteKey,state.selectedSiteId);closeOverlay();location.hash='#/files';await loadFilesData();render();}
-  else if(action==='project-open-work'){closeOverlay();if(workOS?.focusContext)await workOS.focusContext({projectId:el.dataset.id});else if(workOS?.focusProject)await workOS.focusProject(el.dataset.id);else{location.hash='#/tasks';render();}}
-  else if(action==='open-field-site'){closeOverlay();location.hash='#/dashboard';render();await siteSupervisor?.openEntity('site',null,el.dataset.siteId);}
-  else if(action==='site-open-work'){closeOverlay();if(workOS?.focusContext)await workOS.focusContext({projectId:el.dataset.projectId,siteId:el.dataset.siteId});else{location.hash='#/tasks';render();}}
-  else if(action==='cabinet-open-work'){closeOverlay();if(workOS?.focusContext)await workOS.focusContext({projectId:el.dataset.projectId,siteId:el.dataset.siteId,folderId:el.dataset.folderId});else{location.hash='#/tasks';render();}}
+  else if(action==='project-open-work'){closeOverlay();const module=await ensureWorkOS({load:true});if(module.focusContext)await module.focusContext({projectId:el.dataset.id});else await module.focusProject(el.dataset.id);}
+  else if(action==='open-field-site'){closeOverlay();const module=await ensureSiteSupervisor({load:true});location.hash='#/dashboard';render();await module.openEntity('site',null,el.dataset.siteId);}
+  else if(action==='site-open-work'){closeOverlay();const module=await ensureWorkOS({load:true});await module.focusContext({projectId:el.dataset.projectId,siteId:el.dataset.siteId});}
+  else if(action==='cabinet-open-work'){closeOverlay();const module=await ensureWorkOS({load:true});await module.focusContext({projectId:el.dataset.projectId,siteId:el.dataset.siteId,folderId:el.dataset.folderId});}
   else if(action==='project-open-engineering'){closeOverlay();location.hash='#/engineering';render();}
   else if(action==='archive-project'){try{const impact=await api.rpc('project_archive_impact',{p_project_id:el.dataset.id});confirmDialog({title:L('أرشفة المشروع','Archive project'),message:L(`سيتم تجميد المشروع للقراءة فقط. العمل المفتوح: ${impact.open_tasks||0}، الرسومات النشطة: ${impact.active_drawings||0}، المستندات: ${impact.documents||0}.`,`The project becomes read-only. Open work: ${impact.open_tasks||0}, active drawings: ${impact.active_drawings||0}, documents: ${impact.documents||0}.`),danger:true,confirmText:L('أرشفة بعد مراجعة الأثر','Archive after impact review'),onConfirm:async()=>{try{await api.rpc('archive_project',{p_project_id:el.dataset.id,p_force:true});closeOverlay();await refreshAll();toast('success',L('تمت أرشفة المشروع','Project archived'));}catch(err){formError(err);}}});}catch(err){formError(err);}}
   else if(action==='reactivate-project'){try{await api.rpc('reactivate_project',{p_project_id:el.dataset.id});closeOverlay();await refreshAll();toast('success',L('تم تنشيط المشروع','Project reactivated'));}catch(err){formError(err);}}
@@ -2040,7 +2174,7 @@ document.addEventListener('click',async(ev)=>{
 });
 
 document.addEventListener('change',async(ev)=>{
-  if(await engineering.handleChange(ev))return;
+  if(await engineering?.handleChange?.(ev))return;
   if(accessEngine?.handleChange?.(ev))return;
   if(organizationOS?.handleChange(ev))return;
   if(await workOS?.handleChange(ev))return;
@@ -2076,7 +2210,7 @@ document.addEventListener('change',async(ev)=>{
   else if(ev.target.id==='upload-folder'){const folderId=ev.target.value,folder=state.folders.find(f=>f.id===folderId);state.pendingUploads=state.pendingUploads.map(item=>{const matches=state.documents.filter(d=>d.folder_id===folderId&&d.state==='active'&&normalizeName(d.display_name)===normalizeName(item.file.name)),suggestion=smartDocumentSuggestion(item.file,folder);return {...item,folderId,mode:matches.length&&entitlementEnabled('feature.file_versioning')?'version':'new',documentId:matches.length&&entitlementEnabled('feature.file_versioning')?matches[0]?.id:null,documentType:item.documentType==='general'?suggestion.documentType:item.documentType,discipline:item.discipline||suggestion.discipline,revisionCode:item.revisionCode||suggestion.revisionCode};});refreshUploadReview();}
 });
 document.addEventListener('input',(ev)=>{
-  if(engineering.handleInput(ev))return;
+  if(engineering?.handleInput?.(ev))return;
   if(workOS?.handleInput(ev))return;
   if(ev.target.matches('[data-password-input]')){const value=ev.target.value,score=passwordScore(value),meter=ev.target.form?.querySelector('[data-password-meter]');meter?.querySelectorAll('span').forEach((bar,i)=>bar.classList.toggle('active',i<score));const rules=ev.target.form?.querySelector('.password-rules');if(rules){rules.querySelector('[data-rule="length"]')?.classList.toggle('valid',value.length>=12);rules.querySelector('[data-rule="case"]')?.classList.toggle('valid',/[a-z]/.test(value)&&/[A-Z]/.test(value));rules.querySelector('[data-rule="number"]')?.classList.toggle('valid',/\d/.test(value));rules.querySelector('[data-rule="symbol"]')?.classList.toggle('valid',/[^A-Za-z0-9]/.test(value));}return;}
   if(ev.target.id==='task-search'){state.taskSearch=ev.target.value;renderTaskResultsOnly();}
@@ -2095,7 +2229,7 @@ document.addEventListener('input',(ev)=>{
 
 document.addEventListener('submit',async(ev)=>{
   const form=ev.target.closest('form[data-form]');if(!form)return;ev.preventDefault();const type=form.dataset.form,data=Object.fromEntries(new FormData(form));setBusy(form,true);
-  if(type.startsWith('engineering-')){try{await engineering.handleSubmit(type,form,data);}catch(err){formError(err,L('تعذر تنفيذ عملية الرسم','Engineering operation failed'));}finally{if(document.contains(form))setBusy(form,false);}return;}
+  if(type.startsWith('engineering-')){try{await (await ensureEngineering({load:false})).handleSubmit(type,form,data);}catch(err){formError(err,L('تعذر تنفيذ عملية الرسم','Engineering operation failed'));}finally{if(document.contains(form))setBusy(form,false);}return;}
   try{
     if(await projectControl?.handleSubmit(form))return;
     if(await siteSupervisor?.handleSubmit(form))return;
