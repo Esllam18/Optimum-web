@@ -757,6 +757,60 @@ const lazyModuleImporters={
   projectControl:()=>import('./project-control.js?v=6.9.0'),
   siteSupervisor:()=>import('./site-supervisor.js?v=6.9.0')
 };
+const lazyStyleFiles={
+  engineering:'styles-engineering.css',
+  work:'styles-work.css',
+  operations:'styles-management.css',
+  projectControl:'styles-management.css',
+  siteSupervisor:'styles-field.css'
+};
+const lazyStylePromises=new Map();
+let fullCssFallbackPromise=null;
+function cssDeliveryR2(){return document.documentElement.dataset.cssDelivery==='r2';}
+function ensureFullCssFallback(){
+  if(!cssDeliveryR2())return Promise.resolve();
+  if(document.querySelector('link[data-optimum-full-css-fallback]'))return fullCssFallbackPromise||Promise.resolve();
+  fullCssFallbackPromise=new Promise((resolve,reject)=>{
+    const link=document.createElement('link');
+    link.rel='stylesheet';
+    link.href='./assets/styles.css?v=6.9.0';
+    link.dataset.optimumFullCssFallback='true';
+    link.addEventListener('load',()=>resolve(),{once:true});
+    link.addEventListener('error',()=>reject(new Error('Optimum full CSS fallback failed to load.')),{once:true});
+    document.head.appendChild(link);
+  }).catch((error)=>{fullCssFallbackPromise=null;throw error;});
+  return fullCssFallbackPromise;
+}
+function importLazyStyle(key){
+  if(!cssDeliveryR2())return Promise.resolve();
+  const file=lazyStyleFiles[key];
+  if(!file)return Promise.resolve();
+  if(lazyStylePromises.has(file))return lazyStylePromises.get(file);
+  const existing=[...document.querySelectorAll('link[data-optimum-route-style]')].find((link)=>link.dataset.optimumRouteStyle===file);
+  if(existing)return Promise.resolve();
+  const promise=new Promise((resolve,reject)=>{
+    const link=document.createElement('link');
+    link.rel='stylesheet';
+    link.href=`./assets/${file}?v=6.9.0`;
+    link.dataset.optimumRouteStyle=file;
+    link.addEventListener('load',()=>resolve(),{once:true});
+    link.addEventListener('error',()=>{link.remove();reject(new Error(`Optimum route CSS failed to load: ${file}`));},{once:true});
+    document.head.appendChild(link);
+  }).catch(async(error)=>{
+    lazyStylePromises.delete(file);
+    console.warn(error);
+    await ensureFullCssFallback();
+  });
+  lazyStylePromises.set(file,promise);
+  return promise;
+}
+function scheduleCanonicalCssCompletion(){
+  if(!cssDeliveryR2())return;
+  const complete=()=>ensureFullCssFallback().catch((error)=>console.warn(error));
+  if('requestIdleCallback' in window)window.requestIdleCallback(complete,{timeout:2200});
+  else window.setTimeout(complete,1200);
+}
+window.addEventListener('load',scheduleCanonicalCssCompletion,{once:true});
 const lazyModulePromises=new Map();
 const lazyModuleDataCompany=new Map();
 let routeActivationEpoch=0;
@@ -764,7 +818,7 @@ function importLazyModule(key){
   if(lazyModulePromises.has(key))return lazyModulePromises.get(key);
   const importer=lazyModuleImporters[key];
   if(!importer)return Promise.reject(new Error(`Unknown lazy module: ${key}`));
-  const promise=importer().catch((error)=>{lazyModulePromises.delete(key);throw error;});
+  const promise=Promise.all([importer(),importLazyStyle(key)]).then(([mod])=>mod).catch((error)=>{lazyModulePromises.delete(key);throw error;});
   lazyModulePromises.set(key,promise);
   return promise;
 }

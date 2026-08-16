@@ -2,6 +2,7 @@ import { cp, mkdir, readFile, rm, writeFile, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { prepareClientCssDelivery } from './performance-r2-css-delivery.mjs';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const out = join(root, 'dist');
@@ -44,6 +45,7 @@ await mkdir(platformOut, { recursive:true });
 for (const name of ['index.html','platform.html','favicon.svg','app.webmanifest','server.mjs','assets']) {
   await copyFileOrDir(join(root,name), join(out,name));
 }
+await prepareClientCssDelivery({ rootPath:root, outputPath:out });
 await writeFile(join(out,'package.json'), `${JSON.stringify({
   name:'optimum-production', version:release, private:true, type:'module',
   scripts:{ start:'node server.mjs' }, engines:{ node:'>=20.9' }

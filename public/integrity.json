@@ -12,8 +12,8 @@
     "sha256": "e3f7bffdd91dd2d7cfd91ad50cb3f2e545d3496b40bb4c569f9f03f1ca8668bd"
   },
   "assets/app.js": {
-    "bytes": 571506,
-    "sha256": "1a4ed94c7200e18cf7cb850dda164383f95fdf33ae7e9577abb1e8bff6ce8446"
+    "bytes": 574041,
+    "sha256": "fb11f54b57a48fb805bdccef70ae7579394cbc5baafdcd5afb7b901fa78ce79b"
   },
   "assets/brand/optimum-apple-touch.png": {
     "bytes": 17243,
@@ -68,8 +68,8 @@
     "sha256": "4378dae69ce5b418f969223f709b410e585670435856b65ac696ed5d6ce181a7"
   },
   "assets/platform.js": {
-    "bytes": 111680,
-    "sha256": "86370cb69df95bca046c21904cbb850935484da2f4bafa9716902bc1d2b365b6"
+    "bytes": 111361,
+    "sha256": "d1e420a51731166e479369de71d506d5cb7892534f2d867b2b0d8536cd896281"
   },
   "assets/project-control.js": {
     "bytes": 34930,
@@ -79,13 +79,41 @@
     "bytes": 66841,
     "sha256": "d08412db639892150955b4a3e59863d56ecba44eac0228bb66893e68c1f19de7"
   },
+  "assets/styles-core.css": {
+    "bytes": 503111,
+    "sha256": "3c7992f08dae1bf83470365c25e846239b09520228fe1162f769f1e32ec6f6d3"
+  },
+  "assets/styles-engineering.css": {
+    "bytes": 172121,
+    "sha256": "1775b4f3026b7f080b3d5f519bc68c5fc550f1fbf097b57608ce20c70ab35ac6"
+  },
+  "assets/styles-field.css": {
+    "bytes": 24981,
+    "sha256": "188a6cae2f5ea463b27fa5423b88ed914bdab4ff7f72d263994466e54e2f6ccf"
+  },
+  "assets/styles-management.css": {
+    "bytes": 47177,
+    "sha256": "e7a10ee46713b7a2bed90078bf82542dad39c9d97c9558d184bf277fa34d0b18"
+  },
+  "assets/styles-platform.css": {
+    "bytes": 35244,
+    "sha256": "66d0e1e03578c1bde8d81782ff49290db87d58e9d789e5a6f90933fad6c23d5b"
+  },
+  "assets/styles-r2-manifest.json": {
+    "bytes": 1516,
+    "sha256": "06c6d84921c2ce39c66f599115ae41a481eb6107c120779d83649690e90ca99e"
+  },
+  "assets/styles-work.css": {
+    "bytes": 98148,
+    "sha256": "44933486b0c0965ef44e1dbb911ee0273bfab9b103b7f20991e52e51cf9b5715"
+  },
   "assets/styles.css": {
-    "bytes": 899896,
-    "sha256": "604cb71c273d728e7f8e76ca4760eaa02d44ca54676c974839f9adac22870cf2"
+    "bytes": 894464,
+    "sha256": "c2dca65265041d0ac3be55610358b2091669d3cf9586e7f2dceb9f6ec38a0bde"
   },
   "assets/work-os.js": {
-    "bytes": 189302,
-    "sha256": "470e6c09d390b25d4566733de550edc4033ac0a68b5f14247b937a3357b9783d"
+    "bytes": 188868,
+    "sha256": "24bcc85238ffe670ea78483beb7ba8fa7aeef54391b697726fd1bac95d10e064"
   },
   "favicon.svg": {
     "bytes": 5300,
@@ -96,8 +124,8 @@
     "sha256": "fccd5072b7a3ab05c776b65fe88a7f2d3b16c8dcecde48c8ecb6db5a2a13b3c8"
   },
   "index.html": {
-    "bytes": 991,
-    "sha256": "bdcca0335c47f68162d8d985332b8bf6f8f75821cd22c59a6084d2a9c5e0272f"
+    "bytes": 1144,
+    "sha256": "d66a83c4c514e4cc8d2d32e8447b438a7efe95ab480789d52b10eb6c1ec9c0db"
   },
   "platform.html": {
     "bytes": 801,

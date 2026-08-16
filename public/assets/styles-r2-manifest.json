@@ -1,0 +1,54 @@
+{
+  "version": "r2",
+  "canonical": {
+    "file": "styles.css",
+    "normalizedBytes": 894464,
+    "normalizedSha256": "c2dca65265041d0ac3be55610358b2091669d3cf9586e7f2dceb9f6ec38a0bde"
+  },
+  "chunks": {
+    "core": {
+      "file": "styles-core.css",
+      "bytes": 503111,
+      "sha256": "3c7992f08dae1bf83470365c25e846239b09520228fe1162f769f1e32ec6f6d3"
+    },
+    "engineering": {
+      "file": "styles-engineering.css",
+      "bytes": 172121,
+      "sha256": "1775b4f3026b7f080b3d5f519bc68c5fc550f1fbf097b57608ce20c70ab35ac6"
+    },
+    "work": {
+      "file": "styles-work.css",
+      "bytes": 98148,
+      "sha256": "44933486b0c0965ef44e1dbb911ee0273bfab9b103b7f20991e52e51cf9b5715"
+    },
+    "management": {
+      "file": "styles-management.css",
+      "bytes": 47177,
+      "sha256": "e7a10ee46713b7a2bed90078bf82542dad39c9d97c9558d184bf277fa34d0b18"
+    },
+    "field": {
+      "file": "styles-field.css",
+      "bytes": 24981,
+      "sha256": "188a6cae2f5ea463b27fa5423b88ed914bdab4ff7f72d263994466e54e2f6ccf"
+    },
+    "platform": {
+      "file": "styles-platform.css",
+      "bytes": 35244,
+      "sha256": "66d0e1e03578c1bde8d81782ff49290db87d58e9d789e5a6f90933fad6c23d5b"
+    }
+  },
+  "client": {
+    "coreBytes": 503111,
+    "coreKiB": 491.3,
+    "deferredRouteBytes": 342427,
+    "deferredRouteKiB": 334.4,
+    "initialReductionPercent": 43.8
+  },
+  "coverage": {
+    "styleRules": 8793,
+    "selectors": 10095,
+    "atomicAtRules": 24,
+    "containers": 226,
+    "emittedSelectors": 10095
+  }
+}

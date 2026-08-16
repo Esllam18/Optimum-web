@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
+import { prepareClientCssDelivery } from './scripts/performance-r2-css-delivery.mjs';
 
 const RELEASE = '6.9.0';
 const BASELINE = '6.9.1-production-certification-r1';
@@ -38,6 +39,11 @@ for (const file of sourceFiles) {
     await copyFile(src, new URL(`./public/${file}`, rootUrl));
   }
 }
+
+await prepareClientCssDelivery({
+  rootPath:fileURLToPath(rootUrl),
+  outputPath:publicPath
+});
 
 const health = {
   ok: true,
