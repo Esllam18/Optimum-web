@@ -519,6 +519,37 @@ function runtimePolicySignature(policy=state.runtimePolicy){
     plan_code:policy.plan_code||null
   });
 }
+
+// OPTIMUM PERFORMANCE R3 V1 — DASHBOARD ROUTE DATA
+let r3DeferredFilesBootstrapTicket=0;
+function r3CurrentAppPage(){
+  const raw=String(globalThis.location?.hash||'').replace(/^#\/?/,'')||'dashboard';
+  return raw.split('/').filter(Boolean)[0]||'dashboard';
+}
+function r3IsDashboardBootstrapRoute(){
+  const pathname=String(globalThis.location?.pathname||'/').replace(/\/+$/,'')||'/';
+  const page=r3CurrentAppPage();
+  return (pathname==='/'||pathname==='/v7')&&page==='dashboard';
+}
+function r3DeferDashboardFilesBootstrap(loader){
+  if(!r3IsDashboardBootstrapRoute()){
+    r3DeferredFilesBootstrapTicket++;
+    return loader();
+  }
+  const ticket=++r3DeferredFilesBootstrapTicket;
+  const run=()=>{
+    if(ticket!==r3DeferredFilesBootstrapTicket)return;
+    Promise.resolve().then(loader).catch((error)=>{
+      console.warn('[Optimum R3] deferred Files bootstrap failed',error);
+    });
+  };
+  if(typeof globalThis.requestAnimationFrame==='function'){
+    globalThis.requestAnimationFrame(()=>globalThis.setTimeout(run,0));
+  }else{
+    globalThis.setTimeout(run,0);
+  }
+  return Promise.resolve(null);
+}
 async function loadCompanyData() {
   if (!state.companyId) return;
   state.company = state.companies.find((item)=>item.id===state.companyId) || null;
@@ -587,7 +618,7 @@ async function loadCompanyData() {
   localStorage.setItem(filesProjectKey,state.selectedProjectId||'');
   localStorage.setItem(filesSiteKey,state.selectedSiteId);
 
-  if (can('files.view')) await loadFilesData();
+  if (can('files.view')) await r3DeferDashboardFilesBootstrap(()=>loadFilesData());
   else Object.assign(state,{folders:[],documents:[],versions:[],favorites:[],storageMetrics:null});
   await loadNotificationsData();
   if(can('tasks.view')){
