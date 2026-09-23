@@ -461,6 +461,7 @@ async function loadInvitePreview() {
 }
 
 async function loadUserContext() {
+  r4CancelDashboardSecondaryBootstrap();
   state.loading = true;
   const userId = api.user?.id;
   if (!userId) { state.loading = false; return; }
@@ -493,6 +494,7 @@ async function loadUserContext() {
     Object.assign(state,{ companies:[],companyId:null,company:null,subscription:null,membership:null,role:null,roles:[],members:[],projects:[],sites:[],folders:[],documents:[],versions:[],branding:null,compensation:[],roleTemplates:[],roleTemplatePermissions:[],assetUrls:{} });
   }
   state.loading = false;
+  r4FlushDashboardSecondaryBootstrap();
 }
 async function loadRuntimePolicy() {
   if (!state.companyId) { state.runtimePolicy=null; return null; }
@@ -550,6 +552,51 @@ function r3DeferDashboardFilesBootstrap(loader){
   }
   return Promise.resolve(null);
 }
+// OPTIMUM PERFORMANCE R4 V1 — DASHBOARD SECONDARY DATA
+let r4DashboardSecondaryTicket=0;
+let r4DashboardSecondaryPending=null;
+function r4ResetDashboardTaskState(){
+  Object.assign(state,{tasks:[],taskSeries:[],taskAssignments:[],taskChecklist:[],taskComments:[],taskAttachments:[],taskEvents:[],workMetrics:null});
+}
+function r4CancelDashboardSecondaryBootstrap(){
+  r4DashboardSecondaryTicket++;
+  r4DashboardSecondaryPending=null;
+}
+function r4ShouldDeferDashboardSecondaryBootstrap(){
+  return state.loading&&r3IsDashboardBootstrapRoute();
+}
+function r4StageDashboardSecondaryBootstrap(loader){
+  r4DashboardSecondaryPending={ticket:++r4DashboardSecondaryTicket,companyId:state.companyId,loader};
+}
+function r4FlushDashboardSecondaryBootstrap(){
+  const pending=r4DashboardSecondaryPending;
+  if(!pending)return;
+  r4DashboardSecondaryPending=null;
+  const run=async()=>{
+    if(pending.ticket!==r4DashboardSecondaryTicket||pending.companyId!==state.companyId)return;
+    try{
+      await pending.loader();
+      if(pending.ticket===r4DashboardSecondaryTicket&&pending.companyId===state.companyId)render();
+    }catch(error){
+      console.warn('[Optimum R4] deferred dashboard secondary bootstrap failed',error);
+    }
+  };
+  if(typeof globalThis.requestAnimationFrame==='function'){
+    globalThis.requestAnimationFrame(()=>globalThis.setTimeout(run,0));
+  }else{
+    globalThis.setTimeout(run,0);
+  }
+}
+async function r4LoadDashboardSecondaryData(){
+  const page=r3CurrentAppPage();
+  const workPromise=(page==='tasks'||page==='calendar')
+    ? Promise.resolve(null)
+    : can('tasks.view')
+      ? loadDashboardWorkData()
+      : Promise.resolve(r4ResetDashboardTaskState());
+  await Promise.all([loadNotificationsData(),workPromise]);
+}
+
 async function loadCompanyData() {
   if (!state.companyId) return;
   state.company = state.companies.find((item)=>item.id===state.companyId) || null;
@@ -620,11 +667,16 @@ async function loadCompanyData() {
 
   if (can('files.view')) await r3DeferDashboardFilesBootstrap(()=>loadFilesData());
   else Object.assign(state,{folders:[],documents:[],versions:[],favorites:[],storageMetrics:null});
-  await loadNotificationsData();
-  if(can('tasks.view')){
-    if(state.page==='tasks'||state.page==='calendar')await ensureWorkOS({load:true});
-    else await loadDashboardWorkData();
-  }else Object.assign(state,{tasks:[],taskSeries:[],taskAssignments:[],taskChecklist:[],taskComments:[],taskAttachments:[],taskEvents:[],workMetrics:null});
+  if(r4ShouldDeferDashboardSecondaryBootstrap()){
+    r4StageDashboardSecondaryBootstrap(()=>r4LoadDashboardSecondaryData());
+  }else{
+    r4CancelDashboardSecondaryBootstrap();
+    await loadNotificationsData();
+    if(can('tasks.view')){
+      if(state.page==='tasks'||state.page==='calendar')await ensureWorkOS({load:true});
+      else await loadDashboardWorkData();
+    }else r4ResetDashboardTaskState();
+  }
   await prepareLazyModulesForPage(state.page,{load:true});
 
   // Refresh usage values that may have changed while the page was open.
