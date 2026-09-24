@@ -30,7 +30,8 @@ export function createAccessEngine(ctx){
   }
   async function load(){
     if(!state.companyId)return;
-    const f=`eq.${state.companyId}`,roleIds=state.roles.map(x=>x.id),memberIds=state.members.map(x=>x.id),warnings=[];
+    const companyId=state.companyId;
+    const f=`eq.${companyId}`,roleIds=state.roles.map(x=>x.id),memberIds=state.members.map(x=>x.id),warnings=[];
     const safe=(key,promise,fallback=[])=>promise.catch((err)=>{warnings.push({key,message:String(err?.message||err||'Unknown load error')});console.warn(`[AccessEngine] ${key} failed`,err);return fallback;});
     const [entitlements,planEntitlements,overrides,addons,memberAddons,units,scopes,versions,drafts,governance,requests,workspaceVersions,workspaceDrafts,drawings]=await Promise.all([
       safe('entitlements',api.select('entitlements',{order:'module.asc,sort_order.asc,key.asc'})),
@@ -48,11 +49,13 @@ export function createAccessEngine(ctx){
       safe('workspace_drafts',api.select('workspace_setting_drafts',{filters:{company_id:f,status:'eq.draft'},order:'updated_at.desc'})),
       safe('engineering_drawings',api.select('engineering_drawings',{filters:{company_id:f},order:'updated_at.desc'}))
     ]);
+    if(state.companyId!==companyId)return;
     const addonIds=addons.map(x=>x.id),unitIds=units.map(x=>x.id);
     const [addonPerms,unitMembers]=await Promise.all([
       safe('role_addon_permissions',addonIds.length?api.select('role_addon_permissions',{filters:{addon_id:`in.(${addonIds.join(',')})`}}):Promise.resolve([])),
       safe('organization_unit_memberships',unitIds.length?api.select('organization_unit_memberships',{filters:{unit_id:`in.(${unitIds.join(',')})`}}):Promise.resolve([]))
     ]);
+    if(state.companyId!==companyId)return;
     Object.assign(state,{entitlements,planEntitlements,companyEntitlementOverrides:overrides,roleAddons:addons,roleAddonPermissions:addonPerms,memberRoleAddons:memberAddons,organizationUnits:units,organizationUnitMemberships:unitMembers,accessScopeRules:scopes,roleVersions:versions,roleDrafts:drafts,governanceSettings:governance,accessChangeRequests:requests,workspaceVersions,workspaceDrafts,engineeringDrawings:drawings,accessLoadWarnings:warnings});
   }
   const hasAccessWarning=(...keys)=>arr(state.accessLoadWarnings).some(w=>!keys.length||keys.includes(w.key));

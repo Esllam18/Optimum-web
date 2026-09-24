@@ -462,6 +462,7 @@ async function loadInvitePreview() {
 
 async function loadUserContext() {
   r4CancelDashboardSecondaryBootstrap();
+  r5CancelDashboardAdministrativeMetadata();
   state.loading = true;
   const userId = api.user?.id;
   if (!userId) { state.loading = false; return; }
@@ -495,6 +496,7 @@ async function loadUserContext() {
   }
   state.loading = false;
   r4FlushDashboardSecondaryBootstrap();
+  r5FlushDashboardAdministrativeMetadata();
 }
 async function loadRuntimePolicy() {
   if (!state.companyId) { state.runtimePolicy=null; return null; }
@@ -597,6 +599,71 @@ async function r4LoadDashboardSecondaryData(){
   await Promise.all([loadNotificationsData(),workPromise]);
 }
 
+// OPTIMUM PERFORMANCE R5 V1 — DASHBOARD ADMINISTRATIVE METADATA
+let r5DashboardAdministrativeTicket=0;
+let r5DashboardAdministrativePending=null;
+function r5HasAuthoritativeRuntimePolicy(){
+  return Boolean(state.runtimePolicy&&Array.isArray(state.runtimePolicy.permissions)&&Array.isArray(state.runtimePolicy.entitlements));
+}
+function r5ShouldDeferDashboardAdministrativeMetadata(){
+  return state.loading&&r3IsDashboardBootstrapRoute()&&r5HasAuthoritativeRuntimePolicy();
+}
+function r5ResetDashboardAdministrativeState(){
+  Object.assign(state,{
+    compensation:[],activity:[],entitlements:[],planEntitlements:[],companyEntitlementOverrides:[],
+    roleAddons:[],roleAddonPermissions:[],memberRoleAddons:[],organizationUnits:[],organizationUnitMemberships:[],
+    accessScopeRules:[],roleVersions:[],roleDrafts:[],governanceSettings:null,accessChangeRequests:[],
+    workspaceVersions:[],workspaceDrafts:[],engineeringDrawings:[],accessLoadWarnings:[]
+  });
+  organizationOS?.reset?.();
+}
+function r5CancelDashboardAdministrativeMetadata(){
+  r5DashboardAdministrativeTicket++;
+  r5DashboardAdministrativePending=null;
+}
+function r5StageDashboardAdministrativeMetadata(loader){
+  r5DashboardAdministrativePending={ticket:++r5DashboardAdministrativeTicket,companyId:state.companyId,loader};
+}
+function r5FlushDashboardAdministrativeMetadata(){
+  const pending=r5DashboardAdministrativePending;
+  if(!pending)return;
+  r5DashboardAdministrativePending=null;
+  const run=async()=>{
+    if(pending.ticket!==r5DashboardAdministrativeTicket||pending.companyId!==state.companyId)return;
+    try{
+      await pending.loader();
+      if(pending.ticket===r5DashboardAdministrativeTicket&&pending.companyId===state.companyId)render();
+    }catch(error){
+      console.warn('[Optimum R5] deferred dashboard administrative metadata failed',error);
+    }
+  };
+  if(typeof globalThis.requestAnimationFrame==='function'){
+    globalThis.requestAnimationFrame(()=>globalThis.setTimeout(run,50));
+  }else{
+    globalThis.setTimeout(run,50);
+  }
+}
+async function r5LoadDashboardAdministrativeMetadata({companyId,f,membershipIds}){
+  if(companyId!==state.companyId)return;
+  const compensationPromise=can('compensation.view')&&membershipIds.length
+    ? api.select('member_compensation',{filters:{membership_id:`in.(${membershipIds.join(',')})`}}).catch(()=>[])
+    : Promise.resolve([]);
+  const activityPromise=can('audit.view')
+    ? api.rpc('company_activity_feed',{p_company_id:companyId,p_search:null,p_action:null,p_actor_id:null,p_from:null,p_to:null,p_limit:300,p_offset:0})
+        .catch(()=>api.select('audit_events',{filters:{company_id:f},order:'created_at.desc',limit:300}).catch(()=>[]))
+    : Promise.resolve([]);
+  const [compensation,activity]=await Promise.all([
+    compensationPromise,
+    activityPromise,
+    accessEngine?.load(),
+    organizationOS?.load()
+  ]);
+  if(companyId!==state.companyId)return;
+  state.compensation=compensation;
+  state.activity=activity;
+  await resolveIdentityAssets(activity.map((item)=>item.actor_avatar_path));
+}
+
 async function loadCompanyData() {
   if (!state.companyId) return;
   state.company = state.companies.find((item)=>item.id===state.companyId) || null;
@@ -631,12 +698,18 @@ async function loadCompanyData() {
 
   // Server policy is the primary source of truth. Access Engine remains the rich metadata layer.
   await loadRuntimePolicy();
-  await accessEngine?.load();
+  const r5DeferAdministrativeMetadata=r5ShouldDeferDashboardAdministrativeMetadata();
+  if(r5DeferAdministrativeMetadata){
+    r5ResetDashboardAdministrativeState();
+  }else{
+    r5CancelDashboardAdministrativeMetadata();
+    await accessEngine?.load();
+  }
 
   // The fallback path still uses the same DB contract: permissions.entitlement_key -> entitlements.key.
-  state.compensation=can('compensation.view')&&membershipIds.length
+  state.compensation=r5DeferAdministrativeMetadata?[]:(can('compensation.view')&&membershipIds.length
     ? await api.select('member_compensation',{filters:{membership_id:`in.(${membershipIds.join(',')})`}}).catch(()=>[])
-    : [];
+    : []);
 
   const needsProjectContext=['projects.view','files.view','tasks.view','drawings.view'].some((permission)=>can(permission));
   const [projects,sites,projectBlueprints]=needsProjectContext
@@ -650,20 +723,25 @@ async function loadCompanyData() {
   state.sites=sites;
   state.projectBlueprints=projectBlueprints;
 
-  state.activity=can('audit.view')
+  state.activity=r5DeferAdministrativeMetadata?[]:(can('audit.view')
     ? await api.rpc('company_activity_feed',{p_company_id:state.companyId,p_search:null,p_action:null,p_actor_id:null,p_from:null,p_to:null,p_limit:300,p_offset:0})
         .catch(()=>api.select('audit_events',{filters:{company_id:f},order:'created_at.desc',limit:300}).catch(()=>[]))
-    : [];
+    : []);
 
-  await organizationOS?.load();
+  if(!r5DeferAdministrativeMetadata)await organizationOS?.load();
 
-  await resolveIdentityAssets([state.branding?.logo_path,state.branding?.cover_path,...profiles.map((item)=>item.avatar_path),...state.activity.map((item)=>item.actor_avatar_path)]);
+  await resolveIdentityAssets([state.branding?.logo_path,state.branding?.cover_path,...profiles.map((item)=>item.avatar_path),...(r5DeferAdministrativeMetadata?[]:state.activity.map((item)=>item.actor_avatar_path))]);
   applyPreferences();
 
   if (!state.selectedProjectId || !projects.some((project)=>project.id===state.selectedProjectId&&!project.archived_at)) state.selectedProjectId=projects.find((project)=>!project.archived_at)?.id||null;
   if (state.selectedSiteId!=='project'&&!sites.some((site)=>site.id===state.selectedSiteId&&site.project_id===state.selectedProjectId&&!site.archived_at)) state.selectedSiteId='project';
   localStorage.setItem(filesProjectKey,state.selectedProjectId||'');
   localStorage.setItem(filesSiteKey,state.selectedSiteId);
+
+  if(r5DeferAdministrativeMetadata){
+    const r5CompanyId=state.companyId;
+    r5StageDashboardAdministrativeMetadata(()=>r5LoadDashboardAdministrativeMetadata({companyId:r5CompanyId,f,membershipIds}));
+  }
 
   if (can('files.view')) await r3DeferDashboardFilesBootstrap(()=>loadFilesData());
   else Object.assign(state,{folders:[],documents:[],versions:[],favorites:[],storageMetrics:null});

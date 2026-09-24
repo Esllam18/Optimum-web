@@ -16,9 +16,13 @@ export function createOrganizationOS(ctx){
   const sessionGet=(key)=>{try{return sessionStorage.getItem(key);}catch{return null;}};
   const sessionSet=(key,value)=>{try{sessionStorage.setItem(key,value);}catch{}};
 
+  function reset(){
+    Object.assign(local,{savedViews:[],workSettings:null,memberWorkPreferences:[],health:null,runtimeRevision:null,selected:new Set(),bulkUndo:null,loading:false});
+  }
   async function load(){
-    if(!state.companyId){Object.assign(local,{savedViews:[],workSettings:null,memberWorkPreferences:[],health:null,runtimeRevision:null});return;}
-    const f=`eq.${state.companyId}`;
+    if(!state.companyId){reset();return;}
+    const companyId=state.companyId;
+    const f=`eq.${companyId}`;
     const [views,work,prefs,health,revision]=await Promise.all([
       api.select('workspace_saved_views',{filters:{company_id:f,user_id:`eq.${api.user.id}`},order:'updated_at.desc'}).catch(()=>[]),
       api.select('company_work_settings',{filters:{company_id:f}}).catch(()=>[]),
@@ -26,6 +30,7 @@ export function createOrganizationOS(ctx){
       api.rpc('organization_health_snapshot',{p_company_id:state.companyId}).catch(()=>null),
       api.rpc('organization_runtime_revision',{p_company_id:state.companyId}).catch(()=>[])
     ]);
+    if(state.companyId!==companyId)return;
     local.savedViews=views; local.workSettings=work[0]||null; local.memberWorkPreferences=prefs; local.health=health;
     const rev=Array.isArray(revision)?revision[0]:revision; if(rev)local.runtimeRevision=rev;
     // Apply default saved views once per company/browser session.
@@ -166,5 +171,5 @@ export function createOrganizationOS(ctx){
 
   async function syncRemote(){if(!state.companyId||document.visibilityState==='hidden')return false;try{const rows=await api.rpc('organization_runtime_revision',{p_company_id:state.companyId});const rev=(Array.isArray(rows)?rows[0]:rows);if(!rev)return false;if(local.runtimeRevision&&Number(rev.revision)!==Number(local.runtimeRevision.revision)){local.runtimeRevision=rev;await loadCompanyData();await load();if(!ctx.navAllowed?.(state.page))replaceRoute('dashboard');render();toast('info',L('تم تحديث المؤسسة تلقائيًا','Organization updated automatically'),L('وصل تغيير من جلسة أخرى وتم تطبيقه بدون Refresh.','A change from another session was applied without a refresh.'),3200);return true;}local.runtimeRevision=rev;return false;}catch{return false;}}
 
-  return {load,page,member360,selectionCheckbox,bulkBar,undoBar,savedViewControls,roleInsights,commandQuickActions,memberSearchResults,handleAction,handleChange,handleForm,syncRemote,get health(){return local.health;},get selectedCount(){return local.selected.size;}};
+  return {load,reset,page,member360,selectionCheckbox,bulkBar,undoBar,savedViewControls,roleInsights,commandQuickActions,memberSearchResults,handleAction,handleChange,handleForm,syncRemote,get health(){return local.health;},get selectedCount(){return local.selected.size;}};
 }
