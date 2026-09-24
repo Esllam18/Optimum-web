@@ -467,6 +467,7 @@ async function loadUserContext() {
   r7CancelDashboardDirectoryBootstrap();
   r8CancelDashboardSupplementBootstrap();
   r9CancelDashboardMemberRoster();
+  r10CancelDashboardRoleCatalog();
   state.loading = true;
   const userId = api.user?.id;
   if (!userId) { state.loading = false; return; }
@@ -609,6 +610,42 @@ async function r4LoadDashboardSecondaryData(){
   await Promise.all([loadNotificationsData(),workPromise]);
 }
 
+// OPTIMUM PERFORMANCE R10 V1 — DASHBOARD ROLE CATALOG NON-BLOCKING
+let r10DashboardRoleCatalogContext=null;
+let r10DashboardRoleCatalogPromise=null;
+let r10DashboardRoleCatalogCompanyId=null;
+function r10ShouldDeferDashboardRoleCatalog(){
+  return state.loading&&r3IsDashboardBootstrapRoute()&&r5HasAuthoritativeRuntimePolicy();
+}
+function r10CancelDashboardRoleCatalog(){
+  r10DashboardRoleCatalogContext=null;
+  r10DashboardRoleCatalogPromise=null;
+  r10DashboardRoleCatalogCompanyId=null;
+}
+function r10StartRoleCatalog({companyId,f}){
+  const promise=api.select('roles',{filters:{company_id:f},order:'sort_order.asc,created_at.asc'});
+  r10DashboardRoleCatalogCompanyId=companyId;
+  r10DashboardRoleCatalogPromise=promise;
+  return promise;
+}
+function r10StageDashboardRoleCatalog(context,currentRole){
+  r10DashboardRoleCatalogContext=context;
+  state.roles=currentRole?[currentRole]:[];
+  state.role=currentRole||null;
+  state.r10RoleCatalogReady=false;
+}
+async function r10ResolveRoleCatalog(context=r10DashboardRoleCatalogContext){
+  if(!context||context.companyId!==state.companyId)return [];
+  if(state.r10RoleCatalogReady===true)return state.roles;
+  const promise=context.promise||(r10DashboardRoleCatalogCompanyId===context.companyId?r10DashboardRoleCatalogPromise:null)||api.select('roles',{filters:{company_id:context.f},order:'sort_order.asc,created_at.asc'});
+  const roles=await promise;
+  if(context.companyId!==state.companyId)return [];
+  state.roles=roles;
+  state.role=roles.find((item)=>item.id===state.membership?.role_id)||state.role||null;
+  state.r10RoleCatalogReady=true;
+  return roles;
+}
+
 // OPTIMUM PERFORMANCE R9 V1 — DASHBOARD MEMBER ROSTER NON-BLOCKING
 let r9DashboardMemberRosterContext=null;
 let r9DashboardMemberRosterPromise=null;
@@ -695,6 +732,8 @@ function r5FlushDashboardAdministrativeMetadata(){
   }
 }
 async function r5LoadDashboardAdministrativeMetadata({companyId,f,membershipIds=[]}){
+  if(companyId!==state.companyId)return;
+  if(state.r10RoleCatalogReady===false)await r10ResolveRoleCatalog();
   if(companyId!==state.companyId)return;
   const roster=state.r9MemberRosterReady===false?await r9ResolveDashboardMemberRoster():state.members;
   if(companyId!==state.companyId)return;
@@ -793,8 +832,11 @@ async function r7LoadDashboardDirectoryMetadata(context=r7DashboardDirectoryCont
   if(!context||context.companyId!==state.companyId)return;
   if(state.r7DashboardDirectoryReady===true)return;
   if(r7DirectoryLoadPromise&&r7DirectoryLoadCompanyId===context.companyId)return r7DirectoryLoadPromise;
-  const {companyId,f,roleIds}=context;
+  const {companyId,f}=context;
   const promise=(async()=>{
+    const roles=state.r10RoleCatalogReady===false?await r10ResolveRoleCatalog():state.roles;
+    if(companyId!==state.companyId)return;
+    const roleIds=roles.map((item)=>item.id);
     const roster=state.r9MemberRosterReady===false?await r9ResolveDashboardMemberRoster():state.members;
     if(companyId!==state.companyId)return;
     const {memberIds,membershipIds}=r9RosterIds(roster);
@@ -926,20 +968,37 @@ async function loadCompanyData() {
   const r7RuntimePolicyPromise=loadRuntimePolicy();
   // R9: start the full company member roster immediately, but do not make dashboard first paint wait for it.
   const r9MemberRosterPromise=r9StartDashboardMemberRoster({companyId:state.companyId,f});
-  const [subs,roles,brandingRows]=await Promise.all([
+  // R10: start the full role catalog immediately, but await only the signed-in user's role for dashboard first paint.
+  const r10RoleCatalogPromise=r10StartRoleCatalog({companyId:state.companyId,f});
+  const r10CurrentRolePromise=state.membership?.role_id
+    ? api.select('roles',{filters:{company_id:f,id:`eq.${state.membership.role_id}`},limit:1})
+    : Promise.resolve([]);
+  const [subs,currentRoleRows,brandingRows]=await Promise.all([
     api.select('company_subscriptions',{filters:{company_id:f}}),
-    api.select('roles',{filters:{company_id:f},order:'sort_order.asc,created_at.asc'}),
+    r10CurrentRolePromise,
     api.select('company_branding',{filters:{company_id:f}}).catch(()=>[])
   ]);
+  const currentRole=currentRoleRows[0]||null;
   Object.assign(state,{
-    subscription:subs[0]||null,roles,
+    subscription:subs[0]||null,
+    roles:currentRole?[currentRole]:[],
+    role:currentRole,
     branding:brandingRows[0]||null
   });
-  state.role=roles.find((item)=>item.id===state.membership?.role_id)||null;
-  const roleIds=roles.map((item)=>item.id);
 
   // Server policy is the primary source of truth. Access Engine remains the rich metadata layer.
   await r7RuntimePolicyPromise;
+  const r10DeferRoleCatalog=r10ShouldDeferDashboardRoleCatalog();
+  let roles=state.roles;
+  if(r10DeferRoleCatalog){
+    r10StageDashboardRoleCatalog({companyId:state.companyId,f,promise:r10RoleCatalogPromise},currentRole);
+  }else{
+    roles=await r10RoleCatalogPromise;
+    state.roles=roles;
+    state.role=roles.find((item)=>item.id===state.membership?.role_id)||currentRole||null;
+    state.r10RoleCatalogReady=true;
+  }
+  const roleIds=roles.map((item)=>item.id);
   const r9DeferMemberRoster=r9ShouldDeferDashboardMemberRoster();
   let members=[];
   if(r9DeferMemberRoster){
@@ -1023,7 +1082,7 @@ async function loadCompanyData() {
     r5StageDashboardAdministrativeMetadata(()=>r5LoadDashboardAdministrativeMetadata({companyId:r5CompanyId,f,membershipIds}));
   }
   if(r7DeferDirectoryMetadata){
-    r7StageDashboardDirectoryBootstrap({companyId:state.companyId,f,roleIds});
+    r7StageDashboardDirectoryBootstrap({companyId:state.companyId,f});
   }
   if(r8DeferSupplement){
     r8StageDashboardSupplementBootstrap({companyId:state.companyId,loadBlueprints:needsProjectContext,coverPath:state.branding?.cover_path||null});
