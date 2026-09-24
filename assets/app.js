@@ -466,6 +466,7 @@ async function loadUserContext() {
   r6CancelDashboardPostPaintBootstrap();
   r7CancelDashboardDirectoryBootstrap();
   r8CancelDashboardSupplementBootstrap();
+  r9CancelDashboardMemberRoster();
   state.loading = true;
   const userId = api.user?.id;
   if (!userId) { state.loading = false; return; }
@@ -608,6 +609,47 @@ async function r4LoadDashboardSecondaryData(){
   await Promise.all([loadNotificationsData(),workPromise]);
 }
 
+// OPTIMUM PERFORMANCE R9 V1 — DASHBOARD MEMBER ROSTER NON-BLOCKING
+let r9DashboardMemberRosterContext=null;
+let r9DashboardMemberRosterPromise=null;
+let r9DashboardMemberRosterCompanyId=null;
+function r9ShouldDeferDashboardMemberRoster(){
+  return state.loading&&r3IsDashboardBootstrapRoute()&&r5HasAuthoritativeRuntimePolicy();
+}
+function r9CancelDashboardMemberRoster(){
+  r9DashboardMemberRosterContext=null;
+  r9DashboardMemberRosterPromise=null;
+  r9DashboardMemberRosterCompanyId=null;
+}
+function r9StartDashboardMemberRoster({companyId,f}){
+  const promise=api.select('company_memberships',{filters:{company_id:f},order:'created_at.asc'});
+  r9DashboardMemberRosterCompanyId=companyId;
+  r9DashboardMemberRosterPromise=promise;
+  return promise;
+}
+function r9StageDashboardMemberRoster(context){
+  r9DashboardMemberRosterContext=context;
+  state.members=[];
+  state.r9MemberRosterReady=false;
+}
+async function r9ResolveDashboardMemberRoster(context=r9DashboardMemberRosterContext){
+  if(!context||context.companyId!==state.companyId)return [];
+  if(state.r9MemberRosterReady===true)return state.members;
+  const promise=context.promise||(r9DashboardMemberRosterCompanyId===context.companyId?r9DashboardMemberRosterPromise:null)||api.select('company_memberships',{filters:{company_id:context.f},order:'created_at.asc'});
+  const members=await promise;
+  if(context.companyId!==state.companyId)return [];
+  state.members=members;
+  state.r9MemberRosterReady=true;
+  return members;
+}
+function r9RosterIds(members=state.members){
+  const rows=Array.isArray(members)?members:[];
+  return {
+    memberIds:[...new Set(rows.map((item)=>item.user_id).filter(Boolean))],
+    membershipIds:rows.map((item)=>item.id).filter(Boolean)
+  };
+}
+
 // OPTIMUM PERFORMANCE R5 V1 — DASHBOARD ADMINISTRATIVE METADATA
 let r5DashboardAdministrativeTicket=0;
 let r5DashboardAdministrativePending=null;
@@ -652,10 +694,13 @@ function r5FlushDashboardAdministrativeMetadata(){
     globalThis.setTimeout(run,50);
   }
 }
-async function r5LoadDashboardAdministrativeMetadata({companyId,f,membershipIds}){
+async function r5LoadDashboardAdministrativeMetadata({companyId,f,membershipIds=[]}){
   if(companyId!==state.companyId)return;
-  const compensationPromise=can('compensation.view')&&membershipIds.length
-    ? api.select('member_compensation',{filters:{membership_id:`in.(${membershipIds.join(',')})`}}).catch(()=>[])
+  const roster=state.r9MemberRosterReady===false?await r9ResolveDashboardMemberRoster():state.members;
+  if(companyId!==state.companyId)return;
+  const effectiveMembershipIds=membershipIds.length?membershipIds:r9RosterIds(roster).membershipIds;
+  const compensationPromise=can('compensation.view')&&effectiveMembershipIds.length
+    ? api.select('member_compensation',{filters:{membership_id:`in.(${effectiveMembershipIds.join(',')})`}}).catch(()=>[])
     : Promise.resolve([]);
   const activityPromise=can('audit.view')
     ? api.rpc('company_activity_feed',{p_company_id:companyId,p_search:null,p_action:null,p_actor_id:null,p_from:null,p_to:null,p_limit:300,p_offset:0})
@@ -748,8 +793,11 @@ async function r7LoadDashboardDirectoryMetadata(context=r7DashboardDirectoryCont
   if(!context||context.companyId!==state.companyId)return;
   if(state.r7DashboardDirectoryReady===true)return;
   if(r7DirectoryLoadPromise&&r7DirectoryLoadCompanyId===context.companyId)return r7DirectoryLoadPromise;
-  const {companyId,f,memberIds,roleIds,membershipIds}=context;
+  const {companyId,f,roleIds}=context;
   const promise=(async()=>{
+    const roster=state.r9MemberRosterReady===false?await r9ResolveDashboardMemberRoster():state.members;
+    if(companyId!==state.companyId)return;
+    const {memberIds,membershipIds}=r9RosterIds(roster);
     const [permissions,invitations,roleTemplates,roleTemplatePermissions,profiles,rolePermissions,overrides,memberSecurity]=await Promise.all([
       api.select('permissions',{order:'module.asc,key.asc'}),
       api.select('company_invitations',{filters:{company_id:f},order:'created_at.desc'}).catch(()=>[]),
@@ -876,24 +924,32 @@ async function loadCompanyData() {
   const f=`eq.${state.companyId}`;
   // R7: overlap the authoritative runtime-policy request with the essential company shell.
   const r7RuntimePolicyPromise=loadRuntimePolicy();
-  const [subs,roles,members,brandingRows]=await Promise.all([
+  // R9: start the full company member roster immediately, but do not make dashboard first paint wait for it.
+  const r9MemberRosterPromise=r9StartDashboardMemberRoster({companyId:state.companyId,f});
+  const [subs,roles,brandingRows]=await Promise.all([
     api.select('company_subscriptions',{filters:{company_id:f}}),
     api.select('roles',{filters:{company_id:f},order:'sort_order.asc,created_at.asc'}),
-    api.select('company_memberships',{filters:{company_id:f},order:'created_at.asc'}),
     api.select('company_branding',{filters:{company_id:f}}).catch(()=>[])
   ]);
   Object.assign(state,{
-    subscription:subs[0]||null,roles,members,
+    subscription:subs[0]||null,roles,
     branding:brandingRows[0]||null
   });
   state.role=roles.find((item)=>item.id===state.membership?.role_id)||null;
-
-  const memberIds=[...new Set(members.map((item)=>item.user_id))];
   const roleIds=roles.map((item)=>item.id);
-  const membershipIds=members.map((item)=>item.id);
 
   // Server policy is the primary source of truth. Access Engine remains the rich metadata layer.
   await r7RuntimePolicyPromise;
+  const r9DeferMemberRoster=r9ShouldDeferDashboardMemberRoster();
+  let members=[];
+  if(r9DeferMemberRoster){
+    r9StageDashboardMemberRoster({companyId:state.companyId,f,promise:r9MemberRosterPromise});
+  }else{
+    members=await r9MemberRosterPromise;
+    state.members=members;
+    state.r9MemberRosterReady=true;
+  }
+  const {memberIds,membershipIds}=r9RosterIds(members);
   const r7DeferDirectoryMetadata=r7ShouldDeferDashboardDirectoryBootstrap();
   let permissions=[],invitations=[],roleTemplates=[],roleTemplatePermissions=[],profiles=[],rolePermissions=[],overrides=[],memberSecurity=[];
   if(r7DeferDirectoryMetadata){
@@ -967,7 +1023,7 @@ async function loadCompanyData() {
     r5StageDashboardAdministrativeMetadata(()=>r5LoadDashboardAdministrativeMetadata({companyId:r5CompanyId,f,membershipIds}));
   }
   if(r7DeferDirectoryMetadata){
-    r7StageDashboardDirectoryBootstrap({companyId:state.companyId,f,memberIds,roleIds,membershipIds});
+    r7StageDashboardDirectoryBootstrap({companyId:state.companyId,f,roleIds});
   }
   if(r8DeferSupplement){
     r8StageDashboardSupplementBootstrap({companyId:state.companyId,loadBlueprints:needsProjectContext,coverPath:state.branding?.cover_path||null});
