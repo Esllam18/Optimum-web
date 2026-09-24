@@ -469,6 +469,7 @@ async function loadUserContext() {
   r9CancelDashboardMemberRoster();
   r10CancelDashboardRoleCatalog();
   r11CancelDashboardUserContextTail();
+  r12CancelDashboardBrandLogo();
   state.loading = true;
   const userId = api.user?.id;
   if (!userId) { state.loading = false; return; }
@@ -515,6 +516,7 @@ async function loadUserContext() {
   r7FlushDashboardDirectoryBootstrap();
   r8FlushDashboardSupplementBootstrap();
   r11FlushDashboardUserContextTail();
+  r12FlushDashboardBrandLogo();
 }
 async function loadRuntimePolicy() {
   if (!state.companyId) { state.runtimePolicy=null; return null; }
@@ -963,6 +965,48 @@ function r7FlushDashboardDirectoryBootstrap(){
   }
 }
 
+// OPTIMUM PERFORMANCE R12 V1 — DASHBOARD BRAND LOGO POST-PAINT
+let r12DashboardBrandLogoTicket=0;
+let r12DashboardBrandLogoPending=null;
+function r12ShouldDeferDashboardBrandLogo(){
+  return state.loading&&r3IsDashboardBootstrapRoute()&&r5HasAuthoritativeRuntimePolicy();
+}
+function r12CancelDashboardBrandLogo(){
+  r12DashboardBrandLogoTicket++;
+  r12DashboardBrandLogoPending=null;
+}
+function r12StartDashboardBrandLogo({companyId,path}){
+  const assetPath=safeAssetPath(path);
+  if(!assetPath)return Promise.resolve('');
+  if(state.assetUrls[assetPath])return Promise.resolve(state.assetUrls[assetPath]);
+  return api.createSignedUrl('identity-assets',assetPath,3600).then((url)=>{
+    if(companyId===state.companyId)state.assetUrls[assetPath]=url||'';
+    return url||'';
+  }).catch(()=> '');
+}
+function r12StageDashboardBrandLogo({companyId,path,promise}){
+  r12DashboardBrandLogoPending={ticket:++r12DashboardBrandLogoTicket,companyId,path:safeAssetPath(path),promise};
+}
+function r12FlushDashboardBrandLogo(){
+  const pending=r12DashboardBrandLogoPending;
+  if(!pending)return;
+  r12DashboardBrandLogoPending=null;
+  const run=async()=>{
+    if(pending.ticket!==r12DashboardBrandLogoTicket||pending.companyId!==state.companyId)return;
+    try{
+      await pending.promise;
+      if(pending.ticket===r12DashboardBrandLogoTicket&&pending.companyId===state.companyId)render();
+    }catch(error){
+      console.warn('[Optimum R12] deferred dashboard brand logo failed',error);
+    }
+  };
+  if(typeof globalThis.requestAnimationFrame==='function'){
+    globalThis.requestAnimationFrame(()=>globalThis.setTimeout(run,0));
+  }else{
+    globalThis.setTimeout(run,0);
+  }
+}
+
 // OPTIMUM PERFORMANCE R8 V1 — DASHBOARD BRAND & BLUEPRINT POST-PAINT
 let r8DashboardSupplementTicket=0;
 let r8DashboardSupplementPending=null;
@@ -1123,8 +1167,12 @@ async function loadCompanyData() {
 
   const needsProjectContext=['projects.view','files.view','tasks.view','drawings.view'].some((permission)=>can(permission));
   const r8DeferSupplement=r8ShouldDeferDashboardSupplementBootstrap();
-  // R8: the sidebar logo remains first-frame correct, but its signing request now overlaps project/site loading.
-  const r8BrandLogoPromise=resolveIdentityAssets([state.branding?.logo_path]);
+  // R12 measured post-R11: brand-logo signing was the latest repeatable pre-Dashboard request (5/5 cycles).
+  // Keep the signing request early so it still overlaps project/site loading, but do not await it
+  // before authoritative Dashboard first paint. imageOrInitials() preserves a stable fallback box.
+  const r12BrandLogoPath=state.branding?.logo_path||null;
+  const r12DeferBrandLogo=Boolean(r12BrandLogoPath)&&r12ShouldDeferDashboardBrandLogo();
+  const r12BrandLogoPromise=r12StartDashboardBrandLogo({companyId:state.companyId,path:r12BrandLogoPath});
   const [projects,sites]=needsProjectContext
     ? await Promise.all([
         api.select('projects',{filters:{company_id:f},order:'updated_at.desc'}).catch(()=>[]),
@@ -1148,7 +1196,7 @@ async function loadCompanyData() {
   if(!r5DeferAdministrativeMetadata)await organizationOS?.load();
 
   await Promise.all([
-    r8BrandLogoPromise,
+    r12DeferBrandLogo?Promise.resolve(null):r12BrandLogoPromise,
     resolveIdentityAssets([...(r8DeferSupplement?[]:[state.branding?.cover_path]),...profiles.map((item)=>item.avatar_path),...(r5DeferAdministrativeMetadata?[]:state.activity.map((item)=>item.actor_avatar_path))])
   ]);
   applyPreferences();
@@ -1169,6 +1217,11 @@ async function loadCompanyData() {
     r8StageDashboardSupplementBootstrap({companyId:state.companyId,loadBlueprints:needsProjectContext,coverPath:state.branding?.cover_path||null});
   }else{
     r8CancelDashboardSupplementBootstrap();
+  }
+  if(r12DeferBrandLogo){
+    r12StageDashboardBrandLogo({companyId:state.companyId,path:r12BrandLogoPath,promise:r12BrandLogoPromise});
+  }else{
+    r12CancelDashboardBrandLogo();
   }
 
   if (can('files.view')) await r3DeferDashboardFilesBootstrap(()=>loadFilesData());
