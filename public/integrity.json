@@ -12,8 +12,8 @@
     "sha256": "e3f7bffdd91dd2d7cfd91ad50cb3f2e545d3496b40bb4c569f9f03f1ca8668bd"
   },
   "assets/app.js": {
-    "bytes": 580817,
-    "sha256": "f63bcbab0d69031ac022640d7ed18e8e43a01dc42947b1e01d66822ce7ffb24e"
+    "bytes": 583361,
+    "sha256": "8d50697280788d6c752fef8c3bd76950ef6730ae15d29d0a03e41eb82280f38c"
   },
   "assets/brand/optimum-apple-touch.png": {
     "bytes": 17243,
@@ -60,8 +60,8 @@
     "sha256": "181f16c69f5a2b1231dbd3a6a6aa324ad56784fc84a95bd7823cbec657a34eb4"
   },
   "assets/operations-center.js": {
-    "bytes": 36712,
-    "sha256": "d2b6bd4648d9ee1c56c906a02a825a8cd642904a54b3c8a64f642b2bef256eed"
+    "bytes": 37553,
+    "sha256": "879b0bde65c53250dedff55f476b6bb1567f4425b2e840457cc1e87293ed13c6"
   },
   "assets/organization-os.js": {
     "bytes": 51005,
@@ -72,8 +72,8 @@
     "sha256": "d1e420a51731166e479369de71d506d5cb7892534f2d867b2b0d8536cd896281"
   },
   "assets/project-control.js": {
-    "bytes": 34930,
-    "sha256": "b54dd2ddeeca3af6199ae9fb02350906548369b9f1d10cc57903d6a14f3b90f8"
+    "bytes": 35204,
+    "sha256": "695a4958dc7171d6330fe90b0c1942b5fb13a39ab27484961893d2133ea61a77"
   },
   "assets/site-supervisor.js": {
     "bytes": 66841,

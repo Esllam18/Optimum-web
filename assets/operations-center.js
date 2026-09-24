@@ -3,7 +3,7 @@ export function createOperationsCenter({api,state,can,L,e,icon,getProfile,format
   const local={
     snapshot:{tasks:[],approvals:[],notifications:[],changes:[],follows:[],calendar_layers:{...defaultLayers},last_seen_at:null},
     calendar:{events:[],cursor:new Date(new Date().getFullYear(),new Date().getMonth(),1),mode:'month'},
-    view:'today',loading:false,loadedKey:'',refreshing:false,importantOnly:true,calendarLoading:false
+    view:'today',loading:false,loadedKey:'',refreshing:false,importantOnly:true,calendarLoading:false,loadEpoch:0,calendarEpoch:0
   };
   const arr=(v)=>Array.isArray(v)?v:[];
   const entityLabel=(type)=>({task:L('مهمة','Task'),document:L('مستند','Document'),engineering_drawing:L('رسم هندسي','Drawing'),site_claim_package:L('حزمة تسليم','Delivery package'),site_daily_log:L('تقرير موقع يومي','Daily site report'),site_inspection:L('فحص ميداني','Field inspection'),site_field_issue:L('مشكلة ميدانية','Field issue'),site_constraint:L('عائق تنفيذ','Execution constraint'),project:L('مشروع','Project'),site:L('موقع','Site'),site_cabinet:L('كابينة','Cabinet'),access_change_request:L('طلب وصول','Access request')}[type]||L('عنصر','Item'));
@@ -33,30 +33,38 @@ export function createOperationsCenter({api,state,can,L,e,icon,getProfile,format
   const calendarLayer=(kind)=>({task:'tasks',milestone:'tasks',leave:'tasks',holiday:'tasks',document_review:'reviews',document_expiry:'documents',drawing_change:'drawings',delivery_review:'delivery',field_inspection:'reviews',daily_report:'delivery',field_issue_due:'delivery',project_target:'projects',site_target:'projects'}[kind]||'tasks');
   const visibleCalendarEvents=()=>arr(local.calendar.events).filter(ev=>local.snapshot.calendar_layers?.[calendarLayer(ev.kind)]!==false);
   const attentionCount=()=>arr(local.snapshot.approvals).length+arr(local.snapshot.notifications).filter(actionNotification).length+arr(local.snapshot.tasks).filter(isOverdue).length;
-  const markSeen=async()=>{try{await api.rpc('operations_center_mark_seen',{p_company_id:state.companyId});}catch{/* non-blocking */}};
+  const markSeen=async(companyId=state.companyId)=>{if(!companyId||state.companyId!==companyId)return;try{await api.rpc('operations_center_mark_seen',{p_company_id:companyId});}catch{/* non-blocking */}};
 
-  async function loadCalendar(){
-    if(!state.companyId)return;
+  async function loadCalendar({companyId=state.companyId,parentEpoch=null}={}){
+    if(!companyId||state.companyId!==companyId)return;
+    const epoch=++local.calendarEpoch;
     local.calendarLoading=true;render();
-    try{const {from,to}=calendarRange();const [base,field]=await Promise.all([api.rpc('operations_calendar_feed',{p_company_id:state.companyId,p_from:from.toISOString(),p_to:to.toISOString(),p_user_id:null}),api.rpc('site_execution_calendar_feed',{p_company_id:state.companyId,p_from:from.toISOString(),p_to:to.toISOString()}).catch(()=>[])]);local.calendar.events=[...arr(base),...arr(field)];}
-    catch(err){local.calendar.events=[];console.warn('[Operations] calendar feed failed',err);}
-    finally{local.calendarLoading=false;render();}
+    try{
+      const {from,to}=calendarRange();
+      const [base,field]=await Promise.all([api.rpc('operations_calendar_feed',{p_company_id:companyId,p_from:from.toISOString(),p_to:to.toISOString(),p_user_id:null}),api.rpc('site_execution_calendar_feed',{p_company_id:companyId,p_from:from.toISOString(),p_to:to.toISOString()}).catch(()=>[])]);
+      if(epoch!==local.calendarEpoch||state.companyId!==companyId||(parentEpoch!==null&&parentEpoch!==local.loadEpoch))return;
+      local.calendar.events=[...arr(base),...arr(field)];
+    }
+    catch(err){if(epoch===local.calendarEpoch&&state.companyId===companyId)local.calendar.events=[];console.warn('[Operations] calendar feed failed',err);}
+    finally{if(epoch===local.calendarEpoch){local.calendarLoading=false;render();}}
   }
   async function load({force=false,mark=true}={}){
     if(!state.companyId)return;
-    const key=`${state.companyId}:${api.user?.id||''}`;
+    const companyId=state.companyId,key=`${companyId}:${api.user?.id||''}`;
     if(local.loading||(!force&&local.loadedKey===key))return;
+    const epoch=++local.loadEpoch;
     local.loading=true;render();
     try{
-      const [snap,fieldFeed]=await Promise.all([api.rpc('operations_center_snapshot',{p_company_id:state.companyId,p_limit:50}),api.rpc('site_operations_feed',{p_company_id:state.companyId,p_since:local.snapshot.last_seen_at||null,p_limit:50}).catch(()=>({changes:[],approvals:[]}))]);
+      const [snap,fieldFeed]=await Promise.all([api.rpc('operations_center_snapshot',{p_company_id:companyId,p_limit:50}),api.rpc('site_operations_feed',{p_company_id:companyId,p_since:local.snapshot.last_seen_at||null,p_limit:50}).catch(()=>({changes:[],approvals:[]}))]);
+      if(epoch!==local.loadEpoch||state.companyId!==companyId)return;
       local.snapshot={...local.snapshot,...(snap||{}),tasks:arr(snap?.tasks),approvals:[...arr(snap?.approvals),...arr(fieldFeed?.approvals)],notifications:arr(snap?.notifications),changes:[...arr(fieldFeed?.changes),...arr(snap?.changes)].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).slice(0,80),follows:arr(snap?.follows),calendar_layers:{...defaultLayers,...(snap?.calendar_layers||{})}};
       local.loadedKey=key;
-      await loadCalendar();
-      if(mark)markSeen();
-    }catch(err){formError(err,L('تعذر تحميل مركز التشغيل','Could not load Operations Center'));}
-    finally{local.loading=false;local.refreshing=false;render();}
+      await loadCalendar({companyId,parentEpoch:epoch});
+      if(epoch===local.loadEpoch&&state.companyId===companyId&&mark)markSeen(companyId);
+    }catch(err){if(epoch===local.loadEpoch&&state.companyId===companyId)formError(err,L('تعذر تحميل مركز التشغيل','Could not load Operations Center'));}
+    finally{if(epoch===local.loadEpoch){local.loading=false;local.refreshing=false;render();}}
   }
-  function reset(){local.loadedKey='';local.snapshot={tasks:[],approvals:[],notifications:[],changes:[],follows:[],calendar_layers:{...defaultLayers},last_seen_at:null};local.calendar.events=[];}
+  function reset(){local.loadEpoch++;local.calendarEpoch++;local.loading=false;local.refreshing=false;local.calendarLoading=false;local.loadedKey='';local.snapshot={tasks:[],approvals:[],notifications:[],changes:[],follows:[],calendar_layers:{...defaultLayers},last_seen_at:null};local.calendar.events=[];}
 
   function metric(ic,value,label,tone='') {return `<article class="ops-metric ${tone}"><span>${icon(ic,17)}</span><div><b>${value}</b><small>${e(label)}</small></div></article>`;}
   function taskRow(t,{compact=false}={}){

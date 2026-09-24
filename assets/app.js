@@ -463,6 +463,7 @@ async function loadInvitePreview() {
 async function loadUserContext() {
   r4CancelDashboardSecondaryBootstrap();
   r5CancelDashboardAdministrativeMetadata();
+  r6CancelDashboardPostPaintBootstrap();
   state.loading = true;
   const userId = api.user?.id;
   if (!userId) { state.loading = false; return; }
@@ -497,15 +498,19 @@ async function loadUserContext() {
   state.loading = false;
   r4FlushDashboardSecondaryBootstrap();
   r5FlushDashboardAdministrativeMetadata();
+  r6FlushDashboardPostPaintBootstrap();
 }
 async function loadRuntimePolicy() {
   if (!state.companyId) { state.runtimePolicy=null; return null; }
+  const companyId=state.companyId;
   try {
-    const policy=await api.rpc('workspace_runtime_policy',{p_company_id:state.companyId});
+    const policy=await api.rpc('workspace_runtime_policy',{p_company_id:companyId});
+    if(state.companyId!==companyId)return null;
     state.runtimePolicy=policy&&typeof policy==='object'?policy:null;
     state.runtimePolicyCheckedAt=Date.now();
     return state.runtimePolicy;
   } catch (error) {
+    if(state.companyId!==companyId)return null;
     console.warn('[Policy] workspace_runtime_policy unavailable; using client fallback.',error);
     state.runtimePolicy=null;
     state.runtimePolicyCheckedAt=Date.now();
@@ -664,6 +669,49 @@ async function r5LoadDashboardAdministrativeMetadata({companyId,f,membershipIds}
   await resolveIdentityAssets(activity.map((item)=>item.actor_avatar_path));
 }
 
+// OPTIMUM PERFORMANCE R6 V1 — DASHBOARD MANAGEMENT POST-PAINT
+let r6DashboardPostPaintTicket=0;
+let r6DashboardPostPaintPending=null;
+function r6ShouldDeferDashboardPostPaintBootstrap(){
+  return state.loading&&r3IsDashboardBootstrapRoute();
+}
+function r6ShouldDeferDashboardManagementIntelligence(){
+  return r6ShouldDeferDashboardPostPaintBootstrap()&&dashboardHomeMode()==='management';
+}
+function r6CancelDashboardPostPaintBootstrap(){
+  r6DashboardPostPaintTicket++;
+  r6DashboardPostPaintPending=null;
+}
+function r6StageDashboardPostPaintBootstrap(loader){
+  r6DashboardPostPaintPending={ticket:++r6DashboardPostPaintTicket,companyId:state.companyId,loader};
+}
+function r6FlushDashboardPostPaintBootstrap(){
+  const pending=r6DashboardPostPaintPending;
+  if(!pending)return;
+  r6DashboardPostPaintPending=null;
+  const run=async()=>{
+    if(pending.ticket!==r6DashboardPostPaintTicket||pending.companyId!==state.companyId)return;
+    try{
+      await pending.loader();
+      if(pending.ticket===r6DashboardPostPaintTicket&&pending.companyId===state.companyId)render();
+    }catch(error){
+      console.warn('[Optimum R6] deferred dashboard management bootstrap failed',error);
+    }
+  };
+  if(typeof globalThis.requestAnimationFrame==='function'){
+    globalThis.requestAnimationFrame(()=>globalThis.setTimeout(run,100));
+  }else{
+    globalThis.setTimeout(run,100);
+  }
+}
+async function r6LoadDashboardPostPaintBootstrap({companyId,loadManagement}){
+  if(companyId!==state.companyId)return;
+  const jobs=[loadRuntimePolicy()];
+  if(loadManagement)jobs.push(prepareLazyModulesForPage('dashboard',{load:true}));
+  await Promise.all(jobs);
+  if(companyId!==state.companyId)return;
+}
+
 async function loadCompanyData() {
   if (!state.companyId) return;
   state.company = state.companies.find((item)=>item.id===state.companyId) || null;
@@ -755,10 +803,18 @@ async function loadCompanyData() {
       else await loadDashboardWorkData();
     }else r4ResetDashboardTaskState();
   }
-  await prepareLazyModulesForPage(state.page,{load:true});
-
-  // Refresh usage values that may have changed while the page was open.
-  await loadRuntimePolicy();
+  const r6DeferPostPaint=r6ShouldDeferDashboardPostPaintBootstrap();
+  const r6DeferManagement=r6ShouldDeferDashboardManagementIntelligence();
+  if(r6DeferPostPaint){
+    const r6CompanyId=state.companyId;
+    if(!r6DeferManagement)await prepareLazyModulesForPage(state.page,{load:true});
+    r6StageDashboardPostPaintBootstrap(()=>r6LoadDashboardPostPaintBootstrap({companyId:r6CompanyId,loadManagement:r6DeferManagement}));
+  }else{
+    r6CancelDashboardPostPaintBootstrap();
+    await prepareLazyModulesForPage(state.page,{load:true});
+    // Refresh usage values that may have changed while the page was open.
+    await loadRuntimePolicy();
+  }
 }
 async function loadFilesData({refreshDirectory=false}={}) {
   if(!state.staleUploadsCleaned){await api.rpc('cleanup_stale_uploads',{p_older_than_minutes:30}).catch(()=>0);state.staleUploadsCleaned=true;}
@@ -1017,8 +1073,9 @@ async function ensureOperationsCenter({load=false,force=false}={}){
     operationsCenter=mod.createOperationsCenter({api,state,can,L,e,icon,getProfile,formatDate,formatDateTime,relativeTime,pageHeader,emptyState,render,toast,formError,navigateToEntity,replaceRoute,i18n});
   }
   if(load&&state.companyId&&can('company.view')&&lazyDataNeedsLoad('operations',force)){
+    const companyId=state.companyId;
     await operationsCenter.load();
-    markLazyDataLoaded('operations');
+    if(state.companyId===companyId)markLazyDataLoaded('operations');
   }
   return operationsCenter;
 }
@@ -1028,8 +1085,9 @@ async function ensureProjectControl({load=false,force=false}={}){
     projectControl=mod.createProjectControl({api,state,can,L,e,icon,formatDate,formatDateTime,relativeTime,pageHeader,emptyState,render,toast,formError,navigateToEntity,openDrawer,openDialog,closeOverlay,i18n});
   }
   if(load&&state.companyId&&can('projects.view')&&lazyDataNeedsLoad('projectControl',force)){
+    const companyId=state.companyId;
     await projectControl.load();
-    markLazyDataLoaded('projectControl');
+    if(state.companyId===companyId)markLazyDataLoaded('projectControl');
   }
   return projectControl;
 }
@@ -2251,7 +2309,7 @@ document.addEventListener('click',async(ev)=>{
   else if(action==='command')openCommand();
   else if(action==='account-menu')openAccountMenu(el);
   else if(action==='company-switch')openCompanySwitch();
-  else if(action==='select-company'){operationsCenter?.reset();siteSupervisor?.reset();invalidateLazyModuleData();state.companyId=el.dataset.id;localStorage.setItem(CONFIG.selectedCompanyKey,state.companyId);state.currentFolderId=null;state.selectedTaskId=null;state.staleUploadsCleaned=false;closeOverlay();await refreshAll();}
+  else if(action==='select-company'){operationsCenter?.reset();projectControl?.reset();siteSupervisor?.reset();invalidateLazyModuleData();state.companyId=el.dataset.id;localStorage.setItem(CONFIG.selectedCompanyKey,state.companyId);state.currentFolderId=null;state.selectedTaskId=null;state.staleUploadsCleaned=false;closeOverlay();await refreshAll();}
   else if(action==='sign-out'){closeOverlay();await api.signOut();Object.assign(state,{session:null,profile:null,accountSecurity:null,company:null,platformAdmin:null,bootError:null,inviteConflict:null,loading:false});render();}
   else if(action==='notifications')openNotifications();
   else if(action==='mark-notifications-read'){await api.rpc('mark_all_notifications_read',{p_company_id:state.companyId});await loadNotificationsData();openNotifications();render();}
