@@ -464,6 +464,7 @@ async function loadUserContext() {
   r4CancelDashboardSecondaryBootstrap();
   r5CancelDashboardAdministrativeMetadata();
   r6CancelDashboardPostPaintBootstrap();
+  r7CancelDashboardDirectoryBootstrap();
   state.loading = true;
   const userId = api.user?.id;
   if (!userId) { state.loading = false; return; }
@@ -499,6 +500,7 @@ async function loadUserContext() {
   r4FlushDashboardSecondaryBootstrap();
   r5FlushDashboardAdministrativeMetadata();
   r6FlushDashboardPostPaintBootstrap();
+  r7FlushDashboardDirectoryBootstrap();
 }
 async function loadRuntimePolicy() {
   if (!state.companyId) { state.runtimePolicy=null; return null; }
@@ -712,40 +714,131 @@ async function r6LoadDashboardPostPaintBootstrap({companyId,loadManagement}){
   if(companyId!==state.companyId)return;
 }
 
+// OPTIMUM PERFORMANCE R7 V1 — DASHBOARD DIRECTORY POST-PAINT
+let r7DashboardDirectoryTicket=0;
+let r7DashboardDirectoryPending=null;
+let r7DashboardDirectoryContext=null;
+let r7DirectoryLoadPromise=null;
+let r7DirectoryLoadCompanyId=null;
+function r7ShouldDeferDashboardDirectoryBootstrap(){
+  return state.loading&&r3IsDashboardBootstrapRoute()&&r5HasAuthoritativeRuntimePolicy();
+}
+function r7ResetDashboardDirectoryState(){
+  Object.assign(state,{
+    permissions:[],invitations:[],roleTemplates:[],roleTemplatePermissions:[],
+    profiles:[],rolePermissions:[],overrides:[],memberSecurity:[],
+    r7DashboardDirectoryReady:false
+  });
+}
+function r7CancelDashboardDirectoryBootstrap(){
+  r7DashboardDirectoryTicket++;
+  r7DashboardDirectoryPending=null;
+  r7DashboardDirectoryContext=null;
+}
+function r7StageDashboardDirectoryBootstrap(context){
+  r7DashboardDirectoryContext=context;
+  r7DashboardDirectoryPending={ticket:++r7DashboardDirectoryTicket,companyId:context.companyId};
+}
+function r7RouteNeedsDashboardDirectory(page){
+  return ['team','roles','organization','settings','activity','operations'].includes(String(page||''));
+}
+async function r7LoadDashboardDirectoryMetadata(context=r7DashboardDirectoryContext){
+  if(!context||context.companyId!==state.companyId)return;
+  if(state.r7DashboardDirectoryReady===true)return;
+  if(r7DirectoryLoadPromise&&r7DirectoryLoadCompanyId===context.companyId)return r7DirectoryLoadPromise;
+  const {companyId,f,memberIds,roleIds,membershipIds}=context;
+  const promise=(async()=>{
+    const [permissions,invitations,roleTemplates,roleTemplatePermissions,profiles,rolePermissions,overrides,memberSecurity]=await Promise.all([
+      api.select('permissions',{order:'module.asc,key.asc'}),
+      api.select('company_invitations',{filters:{company_id:f},order:'created_at.desc'}).catch(()=>[]),
+      api.select('role_templates',{filters:{is_active:'eq.true'},order:'sort_order.asc'}).catch(()=>[]),
+      api.select('role_template_permissions',{order:'permission_key.asc'}).catch(()=>[]),
+      memberIds.length?api.select('profiles',{filters:{id:`in.(${memberIds.join(',')})`}}):[],
+      roleIds.length?api.select('role_permissions',{filters:{role_id:`in.(${roleIds.join(',')})`}}):[],
+      membershipIds.length?api.select('member_permission_overrides',{filters:{membership_id:`in.(${membershipIds.join(',')})`}}):[],
+      memberIds.length?api.select('account_security',{filters:{user_id:`in.(${memberIds.join(',')})`}}).catch(()=>[]):[]
+    ]);
+    if(companyId!==state.companyId)return;
+    Object.assign(state,{permissions,invitations,roleTemplates,roleTemplatePermissions,profiles,rolePermissions,overrides,memberSecurity,r7DashboardDirectoryReady:true});
+    await resolveIdentityAssets(profiles.map((item)=>item.avatar_path));
+  })();
+  r7DirectoryLoadCompanyId=companyId;
+  r7DirectoryLoadPromise=promise;
+  try{return await promise;}
+  finally{
+    if(r7DirectoryLoadPromise===promise){
+      r7DirectoryLoadPromise=null;
+      r7DirectoryLoadCompanyId=null;
+    }
+  }
+}
+async function r7EnsureDashboardDirectoryMetadata(){
+  if(state.r7DashboardDirectoryReady!==false)return;
+  return r7LoadDashboardDirectoryMetadata(r7DashboardDirectoryContext);
+}
+function r7FlushDashboardDirectoryBootstrap(){
+  const pending=r7DashboardDirectoryPending;
+  if(!pending)return;
+  r7DashboardDirectoryPending=null;
+  const run=async()=>{
+    if(pending.ticket!==r7DashboardDirectoryTicket||pending.companyId!==state.companyId)return;
+    try{
+      await r7LoadDashboardDirectoryMetadata(r7DashboardDirectoryContext);
+      if(pending.ticket===r7DashboardDirectoryTicket&&pending.companyId===state.companyId)render();
+    }catch(error){
+      console.warn('[Optimum R7] deferred dashboard directory metadata failed',error);
+    }
+  };
+  if(typeof globalThis.requestAnimationFrame==='function'){
+    globalThis.requestAnimationFrame(()=>globalThis.setTimeout(run,150));
+  }else{
+    globalThis.setTimeout(run,150);
+  }
+}
+
 async function loadCompanyData() {
   if (!state.companyId) return;
   state.company = state.companies.find((item)=>item.id===state.companyId) || null;
   state.membership = state.memberships.find((item)=>item.company_id===state.companyId) || null;
   const f=`eq.${state.companyId}`;
-  const [subs,roles,permissions,members,invitations,brandingRows,roleTemplates,roleTemplatePermissions]=await Promise.all([
+  // R7: overlap the authoritative runtime-policy request with the essential company shell.
+  const r7RuntimePolicyPromise=loadRuntimePolicy();
+  const [subs,roles,members,brandingRows]=await Promise.all([
     api.select('company_subscriptions',{filters:{company_id:f}}),
     api.select('roles',{filters:{company_id:f},order:'sort_order.asc,created_at.asc'}),
-    api.select('permissions',{order:'module.asc,key.asc'}),
     api.select('company_memberships',{filters:{company_id:f},order:'created_at.asc'}),
-    api.select('company_invitations',{filters:{company_id:f},order:'created_at.desc'}).catch(()=>[]),
-    api.select('company_branding',{filters:{company_id:f}}).catch(()=>[]),
-    api.select('role_templates',{filters:{is_active:'eq.true'},order:'sort_order.asc'}).catch(()=>[]),
-    api.select('role_template_permissions',{order:'permission_key.asc'}).catch(()=>[])
+    api.select('company_branding',{filters:{company_id:f}}).catch(()=>[])
   ]);
   Object.assign(state,{
-    subscription:subs[0]||null,roles,permissions,members,invitations,
-    branding:brandingRows[0]||null,roleTemplates,roleTemplatePermissions
+    subscription:subs[0]||null,roles,members,
+    branding:brandingRows[0]||null
   });
   state.role=roles.find((item)=>item.id===state.membership?.role_id)||null;
 
   const memberIds=[...new Set(members.map((item)=>item.user_id))];
   const roleIds=roles.map((item)=>item.id);
   const membershipIds=members.map((item)=>item.id);
-  const [profiles,rolePermissions,overrides,memberSecurity]=await Promise.all([
-    memberIds.length?api.select('profiles',{filters:{id:`in.(${memberIds.join(',')})`}}):[],
-    roleIds.length?api.select('role_permissions',{filters:{role_id:`in.(${roleIds.join(',')})`}}):[],
-    membershipIds.length?api.select('member_permission_overrides',{filters:{membership_id:`in.(${membershipIds.join(',')})`}}):[],
-    memberIds.length?api.select('account_security',{filters:{user_id:`in.(${memberIds.join(',')})`}}).catch(()=>[]):[]
-  ]);
-  Object.assign(state,{profiles,rolePermissions,overrides,memberSecurity});
 
   // Server policy is the primary source of truth. Access Engine remains the rich metadata layer.
-  await loadRuntimePolicy();
+  await r7RuntimePolicyPromise;
+  const r7DeferDirectoryMetadata=r7ShouldDeferDashboardDirectoryBootstrap();
+  let permissions=[],invitations=[],roleTemplates=[],roleTemplatePermissions=[],profiles=[],rolePermissions=[],overrides=[],memberSecurity=[];
+  if(r7DeferDirectoryMetadata){
+    r7ResetDashboardDirectoryState();
+  }else{
+    r7CancelDashboardDirectoryBootstrap();
+    [permissions,invitations,roleTemplates,roleTemplatePermissions,profiles,rolePermissions,overrides,memberSecurity]=await Promise.all([
+      api.select('permissions',{order:'module.asc,key.asc'}),
+      api.select('company_invitations',{filters:{company_id:f},order:'created_at.desc'}).catch(()=>[]),
+      api.select('role_templates',{filters:{is_active:'eq.true'},order:'sort_order.asc'}).catch(()=>[]),
+      api.select('role_template_permissions',{order:'permission_key.asc'}).catch(()=>[]),
+      memberIds.length?api.select('profiles',{filters:{id:`in.(${memberIds.join(',')})`}}):[],
+      roleIds.length?api.select('role_permissions',{filters:{role_id:`in.(${roleIds.join(',')})`}}):[],
+      membershipIds.length?api.select('member_permission_overrides',{filters:{membership_id:`in.(${membershipIds.join(',')})`}}):[],
+      memberIds.length?api.select('account_security',{filters:{user_id:`in.(${memberIds.join(',')})`}}).catch(()=>[]):[]
+    ]);
+    Object.assign(state,{permissions,invitations,roleTemplates,roleTemplatePermissions,profiles,rolePermissions,overrides,memberSecurity,r7DashboardDirectoryReady:true});
+  }
   const r5DeferAdministrativeMetadata=r5ShouldDeferDashboardAdministrativeMetadata();
   if(r5DeferAdministrativeMetadata){
     r5ResetDashboardAdministrativeState();
@@ -789,6 +882,9 @@ async function loadCompanyData() {
   if(r5DeferAdministrativeMetadata){
     const r5CompanyId=state.companyId;
     r5StageDashboardAdministrativeMetadata(()=>r5LoadDashboardAdministrativeMetadata({companyId:r5CompanyId,f,membershipIds}));
+  }
+  if(r7DeferDirectoryMetadata){
+    r7StageDashboardDirectoryBootstrap({companyId:state.companyId,f,memberIds,roleIds,membershipIds});
   }
 
   if (can('files.view')) await r3DeferDashboardFilesBootstrap(()=>loadFilesData());
@@ -1238,7 +1334,7 @@ function dashboardDecisionSignals(){
     const late=dashboardLateProjects().length;
     if(late)rows.push({iconName:'briefcase',value:late,title:L('مشروع خارج الموعد','Project past target'),detail:L('راجع التقدم والموعد المستهدف قبل الخطوة التالية.','Review progress and target date before the next step.'),tone:'warning',nav:'projects'});
   }
-  if(can('members.manage')||can('roles.manage')){
+  if((can('members.manage')||can('roles.manage'))&&state.r7DashboardDirectoryReady!==false){
     const health=organizationHealth(),issues=(health.owners?0:1)+health.emptyRoles+health.pending;
     if(issues)rows.push({iconName:'shield',value:issues,title:L('وصول مؤسسي يحتاج مراجعة','Organization access needs review'),detail:L('دعوات أو أدوار أو وصول يحتاج تدخل إداري.','Invites, roles, or access need administrative attention.'),tone:'warning',nav:health.emptyRoles&&can('roles.view')?'roles':'team'});
   }
@@ -1998,8 +2094,12 @@ window.addEventListener('popstate',(ev)=>{if(Number.isFinite(ev.state?.optimumEn
 async function activateRoute(route=parseAppRoute()){
   const epoch=++routeActivationEpoch;
   state.page=route.page;state.entityRoute=route.entityKind?{kind:route.entityKind,id:route.entityId}:null;state.sidebarOpen=false;
-  render();
-  try{await prepareLazyModulesForPage(state.page,{load:true});}
+  const r7WaitForDirectory=r7RouteNeedsDashboardDirectory(state.page)&&state.r7DashboardDirectoryReady===false;
+  if(!r7WaitForDirectory)render();
+  try{
+    if(r7WaitForDirectory)await r7EnsureDashboardDirectoryMetadata();
+    await prepareLazyModulesForPage(state.page,{load:true});
+  }
   catch(error){if(epoch===routeActivationEpoch)formError(error,L('تعذر تحميل مساحة العمل المطلوبة','Could not load the requested workspace'));return;}
   if(epoch!==routeActivationEpoch)return;
   render();
