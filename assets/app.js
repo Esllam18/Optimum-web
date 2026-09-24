@@ -465,6 +465,7 @@ async function loadUserContext() {
   r5CancelDashboardAdministrativeMetadata();
   r6CancelDashboardPostPaintBootstrap();
   r7CancelDashboardDirectoryBootstrap();
+  r8CancelDashboardSupplementBootstrap();
   state.loading = true;
   const userId = api.user?.id;
   if (!userId) { state.loading = false; return; }
@@ -501,6 +502,7 @@ async function loadUserContext() {
   r5FlushDashboardAdministrativeMetadata();
   r6FlushDashboardPostPaintBootstrap();
   r7FlushDashboardDirectoryBootstrap();
+  r8FlushDashboardSupplementBootstrap();
 }
 async function loadRuntimePolicy() {
   if (!state.companyId) { state.runtimePolicy=null; return null; }
@@ -796,6 +798,77 @@ function r7FlushDashboardDirectoryBootstrap(){
   }
 }
 
+// OPTIMUM PERFORMANCE R8 V1 — DASHBOARD BRAND & BLUEPRINT POST-PAINT
+let r8DashboardSupplementTicket=0;
+let r8DashboardSupplementPending=null;
+let r8DashboardSupplementContext=null;
+let r8ProjectBlueprintLoadPromise=null;
+let r8ProjectBlueprintLoadCompanyId=null;
+function r8ShouldDeferDashboardSupplementBootstrap(){
+  return state.loading&&r3IsDashboardBootstrapRoute()&&r5HasAuthoritativeRuntimePolicy();
+}
+function r8CancelDashboardSupplementBootstrap(){
+  r8DashboardSupplementTicket++;
+  r8DashboardSupplementPending=null;
+  r8DashboardSupplementContext=null;
+}
+function r8StageDashboardSupplementBootstrap(context){
+  r8DashboardSupplementContext=context;
+  r8DashboardSupplementPending={ticket:++r8DashboardSupplementTicket,companyId:context.companyId};
+}
+async function r8LoadProjectBlueprints(context=r8DashboardSupplementContext){
+  if(!context||context.companyId!==state.companyId||!context.loadBlueprints)return;
+  if(state.r8ProjectBlueprintsReady===true)return;
+  if(r8ProjectBlueprintLoadPromise&&r8ProjectBlueprintLoadCompanyId===context.companyId)return r8ProjectBlueprintLoadPromise;
+  const companyId=context.companyId;
+  const promise=(async()=>{
+    const blueprints=await api.select('project_blueprints',{filters:{is_active:'eq.true'},order:'is_default.desc,created_at.asc'}).catch(()=>[]);
+    if(companyId!==state.companyId)return;
+    state.projectBlueprints=blueprints;
+    state.r8ProjectBlueprintsReady=true;
+  })();
+  r8ProjectBlueprintLoadCompanyId=companyId;
+  r8ProjectBlueprintLoadPromise=promise;
+  try{return await promise;}
+  finally{
+    if(r8ProjectBlueprintLoadPromise===promise){
+      r8ProjectBlueprintLoadPromise=null;
+      r8ProjectBlueprintLoadCompanyId=null;
+    }
+  }
+}
+async function r8EnsureProjectBlueprints(){
+  if(state.r8ProjectBlueprintsReady!==false)return;
+  return r8LoadProjectBlueprints(r8DashboardSupplementContext);
+}
+async function r8LoadDashboardSupplement(context=r8DashboardSupplementContext){
+  if(!context||context.companyId!==state.companyId)return;
+  await Promise.all([
+    r8LoadProjectBlueprints(context),
+    resolveIdentityAssets([context.coverPath])
+  ]);
+  if(context.companyId!==state.companyId)return;
+}
+function r8FlushDashboardSupplementBootstrap(){
+  const pending=r8DashboardSupplementPending;
+  if(!pending)return;
+  r8DashboardSupplementPending=null;
+  const run=async()=>{
+    if(pending.ticket!==r8DashboardSupplementTicket||pending.companyId!==state.companyId)return;
+    try{
+      await r8LoadDashboardSupplement(r8DashboardSupplementContext);
+      if(pending.ticket===r8DashboardSupplementTicket&&pending.companyId===state.companyId)render();
+    }catch(error){
+      console.warn('[Optimum R8] deferred dashboard brand/blueprint supplement failed',error);
+    }
+  };
+  if(typeof globalThis.requestAnimationFrame==='function'){
+    globalThis.requestAnimationFrame(()=>globalThis.setTimeout(run,200));
+  }else{
+    globalThis.setTimeout(run,200);
+  }
+}
+
 async function loadCompanyData() {
   if (!state.companyId) return;
   state.company = state.companies.find((item)=>item.id===state.companyId) || null;
@@ -853,16 +926,23 @@ async function loadCompanyData() {
     : []);
 
   const needsProjectContext=['projects.view','files.view','tasks.view','drawings.view'].some((permission)=>can(permission));
-  const [projects,sites,projectBlueprints]=needsProjectContext
+  const r8DeferSupplement=r8ShouldDeferDashboardSupplementBootstrap();
+  // R8: the sidebar logo remains first-frame correct, but its signing request now overlaps project/site loading.
+  const r8BrandLogoPromise=resolveIdentityAssets([state.branding?.logo_path]);
+  const [projects,sites]=needsProjectContext
     ? await Promise.all([
         api.select('projects',{filters:{company_id:f},order:'updated_at.desc'}).catch(()=>[]),
-        api.select('sites',{filters:{company_id:f},order:'updated_at.desc'}).catch(()=>[]),
-        api.select('project_blueprints',{filters:{is_active:'eq.true'},order:'is_default.desc,created_at.asc'}).catch(()=>[])
+        api.select('sites',{filters:{company_id:f},order:'updated_at.desc'}).catch(()=>[])
       ])
-    : [[],[],[]];
+    : [[],[]];
+  let projectBlueprints=[];
+  if(needsProjectContext&&!r8DeferSupplement){
+    projectBlueprints=await api.select('project_blueprints',{filters:{is_active:'eq.true'},order:'is_default.desc,created_at.asc'}).catch(()=>[]);
+  }
   state.projects=projects;
   state.sites=sites;
   state.projectBlueprints=projectBlueprints;
+  state.r8ProjectBlueprintsReady=!needsProjectContext||!r8DeferSupplement;
 
   state.activity=r5DeferAdministrativeMetadata?[]:(can('audit.view')
     ? await api.rpc('company_activity_feed',{p_company_id:state.companyId,p_search:null,p_action:null,p_actor_id:null,p_from:null,p_to:null,p_limit:300,p_offset:0})
@@ -871,7 +951,10 @@ async function loadCompanyData() {
 
   if(!r5DeferAdministrativeMetadata)await organizationOS?.load();
 
-  await resolveIdentityAssets([state.branding?.logo_path,state.branding?.cover_path,...profiles.map((item)=>item.avatar_path),...(r5DeferAdministrativeMetadata?[]:state.activity.map((item)=>item.actor_avatar_path))]);
+  await Promise.all([
+    r8BrandLogoPromise,
+    resolveIdentityAssets([...(r8DeferSupplement?[]:[state.branding?.cover_path]),...profiles.map((item)=>item.avatar_path),...(r5DeferAdministrativeMetadata?[]:state.activity.map((item)=>item.actor_avatar_path))])
+  ]);
   applyPreferences();
 
   if (!state.selectedProjectId || !projects.some((project)=>project.id===state.selectedProjectId&&!project.archived_at)) state.selectedProjectId=projects.find((project)=>!project.archived_at)?.id||null;
@@ -885,6 +968,11 @@ async function loadCompanyData() {
   }
   if(r7DeferDirectoryMetadata){
     r7StageDashboardDirectoryBootstrap({companyId:state.companyId,f,memberIds,roleIds,membershipIds});
+  }
+  if(r8DeferSupplement){
+    r8StageDashboardSupplementBootstrap({companyId:state.companyId,loadBlueprints:needsProjectContext,coverPath:state.branding?.cover_path||null});
+  }else{
+    r8CancelDashboardSupplementBootstrap();
   }
 
   if (can('files.view')) await r3DeferDashboardFilesBootstrap(()=>loadFilesData());
@@ -2453,7 +2541,7 @@ document.addEventListener('click',async(ev)=>{
   else if(action==='edit-role')openRoleDialog(el.dataset.id);
   else if(action==='delete-role'){const role=getRole(el.dataset.id);const replacements=state.roles.filter((r)=>r.id!==role.id).map((r)=>`<option value="${r.id}">${e(roleLabel(r))}</option>`).join('');openDialog({title:L('حذف الدور','Delete role'),subtitle:L('سيتم نقل أعضاء الدور إلى دور بديل قبل الحذف.','Members will be reassigned before deleting the role.'),body:`<form class="form-grid" data-form="delete-role" data-role-id="${role.id}"><div class="alert alert-warning">${icon('alert',17)}<div class="alert-copy"><strong>${e(roleLabel(role))}</strong><p>${L('لا يمكن التراجع عن حذف الدور.','Role deletion cannot be undone.')}</p></div></div><div class="form-row"><label>${L('الدور البديل','Replacement role')}</label><select class="select" name="replacement_role_id"><option value="">${L('لا يوجد أعضاء أو ارفض لو مستخدم','None — fail if currently used')}</option>${replacements}</select></div><button class="btn btn-danger" type="submit">${icon('trash',15)} ${L('حذف الدور','Delete role')}</button></form>`});}
   else if(action==='edit-member')openMemberDialog(el.dataset.id);
-  else if(action==='new-project')openProjectDialog();
+  else if(action==='new-project'){await r8EnsureProjectBlueprints();openProjectDialog();}
   else if(action==='edit-project'){const p=state.projects.find((x)=>x.id===el.dataset.id);closeOverlay();openProjectDialog(p);}
   else if(action==='open-project')await openProjectDetails(el.dataset.id);
   else if(action==='open-site')await openSiteDetails(el.dataset.id);
