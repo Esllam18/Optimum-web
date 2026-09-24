@@ -468,21 +468,29 @@ async function loadUserContext() {
   r8CancelDashboardSupplementBootstrap();
   r9CancelDashboardMemberRoster();
   r10CancelDashboardRoleCatalog();
+  r11CancelDashboardUserContextTail();
   state.loading = true;
   const userId = api.user?.id;
   if (!userId) { state.loading = false; return; }
-  const [profiles, securityRows, memberships, platformRows, plans] = await Promise.all([
-    api.select('profiles', { filters:{ id:`eq.${userId}` } }),
-    api.select('account_security', { filters:{ user_id:`eq.${userId}` } }).catch(() => []),
-    api.select('company_memberships', { filters:{ user_id:`eq.${userId}`, status:'eq.active' } }),
-    api.select('platform_admins', { filters:{ user_id:`eq.${userId}`, is_active:'eq.true' } }).catch(() => []),
-    api.select('service_plans', { order:'sort_order.asc' }).catch(() => [])
+  const profilePromise=api.select('profiles',{filters:{id:`eq.${userId}`}});
+  const securityPromise=api.select('account_security',{filters:{user_id:`eq.${userId}`}}).catch(()=>[]);
+  const membershipsPromise=api.select('company_memberships',{filters:{user_id:`eq.${userId}`,status:'eq.active'}});
+  const platformPromise=api.select('platform_admins',{filters:{user_id:`eq.${userId}`,is_active:'eq.true'}}).catch(()=>[]);
+  const r11ServicePlansPromise=r11StartServicePlans({userId});
+  // R11: once security + memberships are known safe, start the exact company query immediately
+  // instead of waiting for profile/platform/service-plan work to finish first.
+  const r11CompaniesPromise=r11StartCompaniesAfterSecurity({securityPromise,membershipsPromise});
+  const [profiles,securityRows,memberships,platformRows,companies] = await Promise.all([
+    profilePromise,
+    securityPromise,
+    membershipsPromise,
+    platformPromise,
+    r11CompaniesPromise
   ]);
   state.profile = profiles[0] || { id:userId, full_name:api.user?.user_metadata?.full_name || api.user?.email?.split('@')[0] };
   state.accountSecurity = securityRows[0] || null;
   state.memberships = memberships;
   state.platformAdmin = platformRows[0] || null;
-  state.plans = plans;
 
   // A provisioned account must secure its password before any company data is loaded.
   if (state.accountSecurity?.must_change_password || api.session?.recovery) {
@@ -491,12 +499,13 @@ async function loadUserContext() {
   }
 
   if (memberships.length) {
-    const ids = memberships.map((x) => x.company_id).join(',');
-    state.companies = await api.select('companies', { filters:{ id:`in.(${ids})` }, order:'created_at.asc' });
+    state.companies = companies;
     if (!state.companyId || !state.companies.some((x) => x.id === state.companyId)) state.companyId = state.companies[0]?.id;
     localStorage.setItem(CONFIG.selectedCompanyKey, state.companyId || '');
     await loadCompanyData();
   } else {
+    state.plans=await r11ServicePlansPromise;
+    state.r11ServicePlansReady=true;
     Object.assign(state,{ companies:[],companyId:null,company:null,subscription:null,membership:null,role:null,roles:[],members:[],projects:[],sites:[],folders:[],documents:[],versions:[],branding:null,compensation:[],roleTemplates:[],roleTemplatePermissions:[],assetUrls:{} });
   }
   state.loading = false;
@@ -505,6 +514,7 @@ async function loadUserContext() {
   r6FlushDashboardPostPaintBootstrap();
   r7FlushDashboardDirectoryBootstrap();
   r8FlushDashboardSupplementBootstrap();
+  r11FlushDashboardUserContextTail();
 }
 async function loadRuntimePolicy() {
   if (!state.companyId) { state.runtimePolicy=null; return null; }
@@ -608,6 +618,71 @@ async function r4LoadDashboardSecondaryData(){
       ? loadDashboardWorkData()
       : Promise.resolve(r4ResetDashboardTaskState());
   await Promise.all([loadNotificationsData(),workPromise]);
+}
+
+// OPTIMUM PERFORMANCE R11 V1 — USER CONTEXT OVERLAP & SERVICE PLAN POST-PAINT
+let r11DashboardUserContextTicket=0;
+let r11DashboardUserContextPending=null;
+let r11ServicePlansContext=null;
+function r11StartServicePlans({userId}){
+  const promise=api.select('service_plans',{order:'sort_order.asc'}).catch(()=>[]);
+  r11ServicePlansContext={userId,promise};
+  state.r11ServicePlansReady=false;
+  return promise;
+}
+function r11StartCompaniesAfterSecurity({securityPromise,membershipsPromise}){
+  return Promise.all([securityPromise,membershipsPromise]).then(([securityRows,memberships])=>{
+    if(securityRows?.[0]?.must_change_password||api.session?.recovery||!memberships.length)return [];
+    const ids=[...new Set(memberships.map((item)=>item.company_id).filter(Boolean))];
+    if(!ids.length)return [];
+    return api.select('companies',{filters:{id:`in.(${ids.join(',')})`},order:'created_at.asc'});
+  });
+}
+function r11ShouldDeferServicePlans(){
+  return state.loading&&r3IsDashboardBootstrapRoute()&&r5HasAuthoritativeRuntimePolicy();
+}
+function r11CancelDashboardUserContextTail(){
+  r11DashboardUserContextTicket++;
+  r11DashboardUserContextPending=null;
+  r11ServicePlansContext=null;
+}
+async function r11ResolveServicePlans(context=r11ServicePlansContext){
+  if(!context||context.userId!==api.user?.id)return [];
+  if(state.r11ServicePlansReady===true)return state.plans;
+  const plans=await context.promise;
+  if(context.userId!==api.user?.id)return [];
+  state.plans=plans;
+  state.r11ServicePlansReady=true;
+  return plans;
+}
+function r11StageDashboardUserContextTail({userId,companyId}){
+  r11DashboardUserContextPending={ticket:++r11DashboardUserContextTicket,userId,companyId};
+}
+function r11RouteNeedsServicePlans(page){
+  return String(page||'')==='settings';
+}
+async function r11EnsureServicePlans(){
+  if(state.r11ServicePlansReady!==false)return state.plans;
+  return r11ResolveServicePlans();
+}
+function r11FlushDashboardUserContextTail(){
+  const pending=r11DashboardUserContextPending;
+  if(!pending)return;
+  r11DashboardUserContextPending=null;
+  const run=async()=>{
+    if(pending.ticket!==r11DashboardUserContextTicket||pending.userId!==api.user?.id||pending.companyId!==state.companyId)return;
+    try{
+      await r11ResolveServicePlans();
+      if(pending.ticket===r11DashboardUserContextTicket&&pending.userId===api.user?.id&&pending.companyId===state.companyId)render();
+    }catch(error){
+      console.warn('[Optimum R11] deferred service-plan catalog failed',error);
+    }
+  };
+  if(typeof globalThis.requestAnimationFrame==='function'){
+    globalThis.requestAnimationFrame(()=>globalThis.setTimeout(run,250));
+  }else{
+    globalThis.setTimeout(run,250);
+  }
 }
 
 // OPTIMUM PERFORMANCE R10 V1 — DASHBOARD ROLE CATALOG NON-BLOCKING
@@ -988,6 +1063,12 @@ async function loadCompanyData() {
 
   // Server policy is the primary source of truth. Access Engine remains the rich metadata layer.
   await r7RuntimePolicyPromise;
+  const r11DeferServicePlans=r11ShouldDeferServicePlans();
+  if(r11DeferServicePlans){
+    r11StageDashboardUserContextTail({userId:api.user?.id,companyId:state.companyId});
+  }else{
+    await r11EnsureServicePlans();
+  }
   const r10DeferRoleCatalog=r10ShouldDeferDashboardRoleCatalog();
   let roles=state.roles;
   if(r10DeferRoleCatalog){
@@ -2298,9 +2379,15 @@ async function activateRoute(route=parseAppRoute()){
   const epoch=++routeActivationEpoch;
   state.page=route.page;state.entityRoute=route.entityKind?{kind:route.entityKind,id:route.entityId}:null;state.sidebarOpen=false;
   const r7WaitForDirectory=r7RouteNeedsDashboardDirectory(state.page)&&state.r7DashboardDirectoryReady===false;
-  if(!r7WaitForDirectory)render();
+  const r11WaitForServicePlans=r11RouteNeedsServicePlans(state.page)&&state.r11ServicePlansReady===false;
+  if(!r7WaitForDirectory&&!r11WaitForServicePlans)render();
   try{
-    if(r7WaitForDirectory)await r7EnsureDashboardDirectoryMetadata();
+    if(r7WaitForDirectory||r11WaitForServicePlans){
+      await Promise.all([
+        r7WaitForDirectory?r7EnsureDashboardDirectoryMetadata():Promise.resolve(),
+        r11WaitForServicePlans?r11EnsureServicePlans():Promise.resolve()
+      ]);
+    }
     await prepareLazyModulesForPage(state.page,{load:true});
   }
   catch(error){if(epoch===routeActivationEpoch)formError(error,L('تعذر تحميل مساحة العمل المطلوبة','Could not load the requested workspace'));return;}
